@@ -1,0 +1,63 @@
+Created At: 2026-07-31T07:01:31Z
+Completed At: 2026-07-31T07:01:31Z
+File Path: `file:///c:/Users/niu/Desktop/CostCalculator-main/src/App.tsx`
+Total Lines: 1607
+Total Bytes: 90388
+Showing lines 800 to 1599
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+800:                   <div className="p-3">
+801:                     <div className="grid grid-cols-4 gap-2 text-center">
+802:                       <div className="flex flex-col border-r border-[#eceef0] pr-1">
+803:                         <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">编制项目建议书</span>
+804:                         <span className="text-sm font-bold text-nowrap">
+805:                           {(calcResults?.feasibility.details['编制项目建议书'] || 9.50).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
+806:                         </span>
+807:                       </div>
+808:                       <div className="flex flex-col border-r border-[#eceef0] pr-1">
+809:                         <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">编制可行性研究报告</span>
+810:                         <span className="text-sm font-bold text-nowrap">
+811:                           {(calcResults?.feasibility.details['编制可行性研究报告'] || 12.00).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
+812:                         </span>
+813:                       </div>
+814:                       <div className="flex flex-col border-r border-[#eceef0] pr-1">
+815:                         <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">评估项目建议书</span>
+816:         
+<truncated 45282 bytes>
+w-4 h-4 text-[#c6c6cd] group-hover:translate-x-1 transition-transform" />
+1485:                           </div>
+1486:                         </button>
+1487:                         <button className="w-full px-5 py-4 flex items-center justify-between hover:bg-[#f2f4f6] transition-colors text-left group border-t border-[#eceef0]">
+1488:                           <div>
+1489:                             <p className="text-sm font-bold text-[#191c1e]">实名认证</p>
+1490:                             <p className="text-[11px] text-[#76777d] mt-0.5">用于执业证书合法性验证</p>
+1491:                           </div>
+1492:                           <div className="flex items-center gap-2">
+1493:                             <span className="text-[11px] text-[#ba1a1a] font-bold">待完善</span>
+1494:                             <ChevronRight className="w-4 h-4 text-[#c6c6cd] group-hover:translate-x-1 transition-transform" />
+1495:                           </div>
+1496:                         </button>
+1497:                       </div>
+1498:                     </div>
+1499:                   </motion.div>
+1500:                 )}
+1501:               </AnimatePresence>
+1502: 
+1503:               <div className="text-center pt-4 pb-8">
+1504:                 <p className="text-xs text-[#45464d]">© 2024 工程造价助手 - 专业工程管理系统</p>
+1505:               </div>
+1506:             </motion.div>
+1507:           )}
+1508:         </AnimatePresence>
+1509:       </main>
+1510: 
+1511:       {/* Fixed Action Button for Calculator */}
+1512:       <AnimatePresence>
+1513:         {activeTab === 'calculator' && (
+1514:           <motion.div 
+1515:             initial={{ opacity: 0, y: 100 }}
+1516:             animate={{ opacity: 1, y: 0 }}
+1517:             exit={{ opacity: 0, y: 100 }}
+1518:             className="fixed bottom-[72px] left-0 right-0 p
+<truncated 4801 bytes>
+
+NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.

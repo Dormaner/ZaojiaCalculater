@@ -1,0 +1,53 @@
+Created At: 2026-07-31T08:11:24Z
+Completed At: 2026-07-31T08:11:24Z
+File Path: `file:///c:/Users/niu/Desktop/CostCalculator-main/src/App.tsx`
+Total Lines: 2447
+Total Bytes: 145435
+Showing lines 890 to 950
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+890:                 {/* 顶部二级导航：四个子页面 */}
+891:                 <div className="flex bg-[#f2f4f6] p-1 rounded-2xl shadow-inner max-w-3xl mx-auto border border-[#eceef0]">
+892:                   {[
+893:                     { id: 'design', label: '工程设计费' },
+894:                     { id: 'feasibility', label: '工程可研费' },
+895:                     { id: 'supervision', label: '工程监理费' },
+896:                     { id: 'consulting', label: '造价咨询费' },
+897:                   ].map((subTab) => (
+898:                     <button
+899:                       key={subTab.id}
+900:                       type="button"
+901:                       onClick={() => setCalculatorSubTab(subTab.id as any)}
+902:                       className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all relative ${
+903:                         calculatorSubTab === subTab.id
+904:                           ? 'bg-white text-[#0F172A] shadow-md border border-[#eceef0]'
+905:                           : 'text-[#515f74] hover:text-[#0F172A]'
+906:                       }`}
+907:                     >
+908:                       {subTab.label}
+909:                     </button>
+910:                   ))}
+911:                 </div>
+912: 
+913:                 {/* 子页面 1：工程设计费 */}
+914:                 {calculatorSubTab === 'design' && (
+915:                   <div className="space-y-6 px-1 animate-fadeIn">
+916:                     <div className="p-5 bg-white border border-[#c6c6cd]/60 shadow-sm rounded-2xl">
+917:                       <lab
+<truncated 1277 bytes>
+dRegion(e.target.value)}
+936:                           className="w-full border border-[#c6c6cd] bg-white px-3 py-3 text-sm rounded-xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none"
+937:                         >
+938:                           <option                 {/* 子页面 4：造价咨询费测算问卷 */}
+939:                 {calculatorSubTab === 'consulting' && (
+940:                   <div className="space-y-6 px-1 animate-fadeIn">
+941:                     
+942:                     {/* 顶部滑动指示器 */}
+943:                     <div className="max-w-xl mx-auto mb-4 px-1">
+944:                       <div className="flex justify-between text-[9px] font-bold text-[#76777d] mb-2 uppercase tracking-wider">
+945:                         <span className={consultingStep === 0 ? 'text-[#007AFF]' : ''}>1. 测算省份</span>
+946:                         <span className={consultingStep === 1 ? 'text-[#007AFF]' : ''}>2. 服务类型</span>
+947:                         <span className={consultingStep === 2 ? 'text-[#007AFF]' : ''}>3. 细分项</span>
+948:                         <span className={consultingStep === 3 ? 'text-[#007AFF]' : ''}>4. 计费基数</span>
+949:                         <span className={consultingStep === 4 ? 'text-[#007AFF]' : ''}>5. 工程类别</span>
+950:                         <span className={consultingStep === 5 ? 'text-[#007AFF]' : ''}>6. 测算报告</span>
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
