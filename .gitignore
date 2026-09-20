@@ -18,3 +18,8 @@ android/captures/
 *.keystore
 *.jks
 .gradle/
+
+# 临时提取文本
+_design_extract/
+_ch7.txt
+_test_*.ts

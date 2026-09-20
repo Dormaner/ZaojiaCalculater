@@ -47,33 +47,57 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { TabType, CalculationRecord } from './types';
 
-import { 
+import {
   interpolate,
-  calculateDesignFee,
-  calculateFeasibilityFee,
-  calculateSupervisionFee,
   calculateConsultingFee,
   calculateProgressiveFee
 } from './services/calculationService';
 
+import {
+  SUPERVISION_STANDARDS,
+  SUPERVISION_PROVINCES,
+  SUPERVISION_BILLING_BASE_LABEL,
+  calculateSupervision,
+  type SupervisionCategory,
+} from './data/supervisionStandards';
+
+import {
+  DESIGN_STANDARDS,
+  DESIGN_PROVINCES,
+  DESIGN_STEPS,
+  DESIGN_CATEGORIES,
+  DESIGN_COMPLEXITY_TABLES,
+  DESIGN_CUSTOM_COMPLEXITY_REFS,
+  DESIGN_MODES,
+  DESIGN_BILLING_BASE_LABEL,
+  DESIGN_BILLING_BASE_HINT,
+  DESIGN_PROVINCE_NAMES,
+  DESIGN_NAT_AXIS,
+  DESIGN_NAT_PRICES,
+  DESIGN_NAT_CAP_RATE,
+  COMPLEXITY_4,
+  buildStandardFromMultiplier,
+  calculateDesign,
+  type CustomDesignProvince,
+  type DesignCategory,
+  type DesignComplexityRef,
+  type DesignStandard,
+} from './data/designStandards';
+
+import {
+  FEASIBILITY_STANDARDS,
+  FEASIBILITY_PROVINCES,
+  FEASIBILITY_STEPS,
+  INDUSTRY_FACTORS,
+  COMPLEXITY_MIN,
+  COMPLEXITY_MAX,
+  FEASIBILITY_BILLING_BASE_LABEL,
+  FEASIBILITY_BILLING_BASE_HINT,
+  calculateFeasibility,
+  type FeasibilityServiceItem,
+} from './data/feasibilityStandards';
+
 // Data Constants for Calculations
-const DESIGN_FEE_TABLE = {
-  axis: ['0.02', '0.05', '0.1', '0.3', '0.5', '0.8', '1.0', '2.0', '4.0', '6.0', '8.0', '10', '20', '40', '60', '80', '100', '200'],
-  basePrices: ['9.0', '20.9', '38.8', '103.8', '163.7', '249.6', '304.8', '566.8', '1054.0', '1515.5', '1960.1', '2393.4', '4450.8', '8276.7', '11897.5', '15391.4', '18793.8', '34948.9']
-};
-
-const FEASIBILITY_FEE_CONFIG = [
-  { name: '编制项目建议书', rates: ['1', '2', '6', '14', '37', '55', '100'], axis: ['0', '0.05', '0.3', '1', '5', '10', '50'], labels: ['收费额 (万元)', '工程费 (亿元)'] },
-  { name: '编制可行性研究报告', rates: ['2', '4', '12', '28', '75', '110', '200'], axis: ['0', '0.05', '0.3', '1', '5', '10', '50'], labels: ['收费额 (万元)', '工程费 (亿元)'] },
-  { name: '评估项目建议书', rates: ['0.5', '1', '2', '4', '8', '12', '15'], axis: ['0', '0.05', '0.3', '1', '5', '10', '50'], labels: ['收费额 (万元)', '工程费 (亿元)'] },
-  { name: '评估可行性研究报告', rates: ['1', '2', '3', '5', '10', '15', '20'], axis: ['0', '0.05', '0.3', '1', '5', '10', '50'], labels: ['收费额 (万元)', '工程费 (亿元)'] },
-];
-
-const SUPERVISION_FEE_CONFIG = {
-  rates: ['3.3%', '3.0%', '2.6%', '2.2%', '1.8%', '1.5%', '1.2%'],
-  axis: ['0', '0.05', '0.3', '1', '5', '10', '50']
-};
-
 const CONSULTING_FEE_CONFIG = [
   { name: '清单编制费', rates: ['0.80%', '0.65%', '0.60%', '0.45%', '0.35%', '0.25%', '0.20%'], axis: ['0', '0.05', '0.3', '1', '5', '10', '50'], labels: ['费率 (%)', '投资额 (亿元)'] },
   { name: '过程咨询费', rates: ['0.70%', '0.60%', '0.55%', '0.50%', '0.45%', '0.40%', '0.35%'], axis: ['0', '0.05', '0.3', '1', '5', '10', '50'], labels: ['费率 (%)', '工程费 (亿元)'] },
@@ -902,6 +926,249 @@ export default function App() {
     return null;
   };
 
+  // ==================== 施工监理服务费（5 步向导，与造价咨询费一致） ====================
+  const SUPERVISION_STEPS = ['1. 测算省份', '2. 监理服务类型', '3. 计费额', '4. 工程类别', '5. 测算报告'];
+
+  const getSupervisionStandard = () =>
+    SUPERVISION_STANDARDS[supervisionProvince] || SUPERVISION_STANDARDS[SUPERVISION_PROVINCES[0]];
+
+  const getSupervisionCategories = (): SupervisionCategory[] => {
+    const std = getSupervisionStandard();
+    return std.categories[supervisionServiceType] || [];
+  };
+
+  const getSupervisionSelectValue = () => {
+    if (supervisionCategoryIndex === -2) return CATEGORY_FIXED_VALUE;
+    if (supervisionCategoryIndex === -1) return CATEGORY_CUSTOM_VALUE;
+    return supervisionCategoryIndex === null ? '' : String(supervisionCategoryIndex);
+  };
+
+  const getSelectedSupervisionCategory = (): { name: string; factor: number } | null => {
+    if (supervisionCategoryIndex === -2) return { name: '固定系数 1.0', factor: 1.0 };
+    if (supervisionCategoryIndex === -1) {
+      const parsed = parseFloat(supervisionCustomFactor);
+      const factor = Number.isFinite(parsed) && parsed > 0 ? parsed : 1.0;
+      return { name: `自定义系数 ${factor}`, factor };
+    }
+    if (supervisionCategoryIndex !== null) {
+      const cats = getSupervisionCategories();
+      if (cats[supervisionCategoryIndex]) {
+        return { name: cats[supervisionCategoryIndex].name, factor: cats[supervisionCategoryIndex].factor };
+      }
+    }
+    return null;
+  };
+
+  const getSupervisionExtraFactor = () => {
+    const std = getSupervisionStandard();
+    return std.options.reduce((sum, o) => sum + (supervisionOptions[o.key] ? o.factor : 0), 0);
+  };
+
+  /** 从监理费报告文本中提取总费用（万元），未测算时返回 null */
+  const getSupervisionFeeWanyuan = (): number | null => {
+    if (!showSupervisionResult || !supervisionResultText) return null;
+    const feeText = extractFeeOnly(supervisionResultText);
+    const value = parseFloat(String(feeText).replace(/[^\d.]/g, ''));
+    return Number.isFinite(value) ? value / 10000 : null;
+  };
+
+  const getSupervisionExtraLabels = () => {
+    const std = getSupervisionStandard();
+    return std.options.filter(o => supervisionOptions[o.key]).map(o => `${o.label}（+${Math.round(o.factor * 100)}%）`);
+  };
+
+  const resetSupervisionWizard = () => {
+    setSupervisionServiceType('');
+    setSupervisionAmount('');
+    setSupervisionCategoryIndex(null);
+    setSupervisionCustomFactor('');
+    setSupervisionOptions({});
+    setSupervisionDelegateRatio('');
+    setSupervisionWithSafety(false);
+    setShowSupervisionResult(false);
+    navigateSupervisionStep(0);
+  };
+
+  const handleCalculateSupervision = async () => {
+    const amount = parseFloat(supervisionAmount);
+    if (!(amount > 0)) {
+      alert('请输入有效的计费额');
+      return;
+    }
+    const std = getSupervisionStandard();
+    const category = getSelectedSupervisionCategory();
+    if (!category) {
+      alert('请选择工程类别或自定义系数');
+      return;
+    }
+    const ratioParsed = parseFloat(supervisionDelegateRatio);
+    const delegateRatio = Number.isFinite(ratioParsed) && ratioParsed > 0 ? Math.min(ratioParsed, 100) / 100 : 1;
+
+    // 优先调用后端 API
+    try {
+      const response = await fetch('http://localhost:3001/api/calculate-supervision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          province: supervisionProvince,
+          serviceType: supervisionServiceType,
+          amount,
+          categoryName: category.name,
+          categoryFactor: category.factor,
+          extraFactor: getSupervisionExtraFactor(),
+          extraLabels: getSupervisionExtraLabels(),
+          delegateRatio,
+          withSafety: supervisionWithSafety,
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSupervisionResultText(data.reportText);
+        setShowSupervisionResult(true);
+        return;
+      }
+    } catch (err) {
+      console.warn('Supervision API unavailable, falling back to local computation:', err);
+    }
+
+    // 本地回退计算
+    const result = calculateSupervision({
+      standard: std,
+      amount,
+      serviceType: supervisionServiceType,
+      categoryName: category.name,
+      categoryFactor: category.factor,
+      extraFactor: getSupervisionExtraFactor(),
+      extraLabels: getSupervisionExtraLabels(),
+      delegateRatio,
+      withSafety: supervisionWithSafety,
+    });
+    setSupervisionResultText(result.reportText);
+    setShowSupervisionResult(true);
+  };
+
+  // ==================== 建设项目前期工作咨询费（工程可研费，5 步向导） ====================
+  const getFeasibilityStandard = () =>
+    FEASIBILITY_STANDARDS[feasibilityProvince] || FEASIBILITY_STANDARDS[FEASIBILITY_PROVINCES[0]];
+
+  const getFeasibilityServices = (): FeasibilityServiceItem[] => getFeasibilityStandard().services;
+
+  const getSelectedFeasibilityServices = (): FeasibilityServiceItem[] =>
+    getFeasibilityServices().filter((s) => feasibilityServiceKeys.includes(s.key));
+
+  const toggleFeasibilityService = (key: string) => {
+    setFeasibilityServiceKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+    setShowFeasibilityResult(false);
+  };
+
+  const hasAffordableSelected = () => getSelectedFeasibilityServices().some((s) => s.affordable);
+  const hasNormalSelected = () => getSelectedFeasibilityServices().some((s) => !s.affordable);
+
+  const getFeasibilityIndustryFactor = (): number => {
+    if (feasibilityIndustryKey === CATEGORY_CUSTOM_VALUE) {
+      const v = parseFloat(feasibilityIndustryCustom);
+      return Number.isFinite(v) && v > 0 ? v : 1.0;
+    }
+    return (INDUSTRY_FACTORS.find((i) => i.key === feasibilityIndustryKey) || INDUSTRY_FACTORS[3]).factor;
+  };
+
+  const getFeasibilityIndustryLabel = (): string => {
+    if (feasibilityIndustryKey === CATEGORY_CUSTOM_VALUE) {
+      return `自定义系数 ${getFeasibilityIndustryFactor()}`;
+    }
+    return (INDUSTRY_FACTORS.find((i) => i.key === feasibilityIndustryKey) || INDUSTRY_FACTORS[3]).label;
+  };
+
+  const getFeasibilityComplexityFactor = (): number => {
+    const v = parseFloat(feasibilityComplexity);
+    if (!Number.isFinite(v)) return 1.0;
+    return Math.min(Math.max(v, COMPLEXITY_MIN), COMPLEXITY_MAX);
+  };
+
+  const getFeasibilityOtherFactor = (): number => {
+    const preset = getFeasibilityStandard().otherFactorPresets.find((p) => p.key === feasibilityOtherPreset);
+    if (preset) return preset.factor;
+    const v = parseFloat(feasibilityOtherCustom);
+    return Number.isFinite(v) && v > 0 ? v : 1.0;
+  };
+
+  const getFeasibilityOtherLabels = (): string[] => {
+    const preset = getFeasibilityStandard().otherFactorPresets.find((p) => p.key === feasibilityOtherPreset);
+    if (preset) return [preset.label];
+    if (feasibilityOtherCustom.trim() !== '') return [`手工输入其他调整系数 ${getFeasibilityOtherFactor()}`];
+    return [];
+  };
+
+  const getFeasibilityTotalFactor = (): number =>
+    getFeasibilityIndustryFactor() * getFeasibilityComplexityFactor() * getFeasibilityOtherFactor();
+
+  /** 从可研费报告文本中提取总费用（万元），未测算时返回 null */
+  const getFeasibilityFeeWanyuan = (): number | null => {
+    if (!showFeasibilityResult || !feasibilityResultText) return null;
+    const feeText = extractFeeOnly(feasibilityResultText);
+    const value = parseFloat(String(feeText).replace(/[^\d.]/g, ''));
+    return Number.isFinite(value) ? value / 10000 : null;
+  };
+
+  const resetFeasibilityWizard = () => {
+    setFeasibilityServiceKeys(['report']);
+    setFeasibilityAmount('');
+    setFeasibilityIndustryKey('i4');
+    setFeasibilityIndustryCustom('');
+    setFeasibilityComplexity('1.00');
+    setFeasibilityOtherPreset('');
+    setFeasibilityOtherCustom('');
+    setShowFeasibilityResult(false);
+    navigateFeasibilityStep(0);
+  };
+
+  const handleCalculateFeasibility = async () => {
+    const amount = parseFloat(feasibilityAmount);
+    if (!(amount > 0)) {
+      alert(`请输入有效的${FEASIBILITY_BILLING_BASE_LABEL}`);
+      return;
+    }
+    if (getSelectedFeasibilityServices().length === 0) {
+      alert('请至少选择一项咨询服务类型');
+      return;
+    }
+    const payload = {
+      province: feasibilityProvince,
+      serviceKeys: feasibilityServiceKeys,
+      amount,
+      industryFactor: getFeasibilityIndustryFactor(),
+      industryLabel: getFeasibilityIndustryLabel(),
+      complexityFactor: getFeasibilityComplexityFactor(),
+      otherFactor: getFeasibilityOtherFactor(),
+      otherLabels: getFeasibilityOtherLabels(),
+    };
+
+    // 优先调用后端 API
+    try {
+      const response = await fetch('http://localhost:3001/api/calculate-feasibility', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setFeasibilityResultText(data.reportText);
+        setShowFeasibilityResult(true);
+        return;
+      }
+    } catch (err) {
+      console.warn('Feasibility API unavailable, falling back to local computation:', err);
+    }
+
+    // 本地回退计算
+    const result = calculateFeasibility({
+      standard: getFeasibilityStandard(),
+      ...payload,
+    });
+    setFeasibilityResultText(result.reportText);
+    setShowFeasibilityResult(true);
+  };
+
 
   // New States for Design Section
   const [designStandard, setDesignStandard] = useState('湖南省标准');
@@ -942,6 +1209,92 @@ export default function App() {
 
   // Sub-tabs for the main calculator
   const [calculatorSubTab, setCalculatorSubTab] = useState<'design' | 'feasibility' | 'supervision' | 'consulting'>('consulting');
+
+  // States for Supervision Fee Questionnaire（5 步向导，与造价咨询费保持一致）
+  const [supervisionProvince, setSupervisionProvince] = useState<string>('湖南省');
+  const [supervisionServiceType, setSupervisionServiceType] = useState<string>('');
+  const [supervisionAmount, setSupervisionAmount] = useState<string>('');
+  const [supervisionCategoryIndex, setSupervisionCategoryIndex] = useState<number | null>(null);
+  const [supervisionCustomFactor, setSupervisionCustomFactor] = useState<string>('');
+  const [supervisionOptions, setSupervisionOptions] = useState<Record<string, boolean>>({});
+  const [supervisionDelegateRatio, setSupervisionDelegateRatio] = useState<string>('');
+  const [supervisionWithSafety, setSupervisionWithSafety] = useState<boolean>(false);
+  const [supervisionResultText, setSupervisionResultText] = useState<string>('');
+  const [showSupervisionResult, setShowSupervisionResult] = useState<boolean>(false);
+  const [[supervisionStep, supervisionDirection], setSupervisionStep] = useState<[number, number]>([0, 0]);
+
+  const navigateSupervisionStep = (newStep: number) => {
+    setSupervisionStep([newStep, newStep > supervisionStep ? 1 : -1]);
+  };
+
+  // States for Feasibility Fee Questionnaire（工程可研费，5 步向导）
+  const [feasibilityProvince, setFeasibilityProvince] = useState<string>('湖南省');
+  const [feasibilityServiceKeys, setFeasibilityServiceKeys] = useState<string[]>(['report']);
+  const [feasibilityAmount, setFeasibilityAmount] = useState<string>('');
+  const [feasibilityIndustryKey, setFeasibilityIndustryKey] = useState<string>('i4');
+  const [feasibilityIndustryCustom, setFeasibilityIndustryCustom] = useState<string>('');
+  const [feasibilityComplexity, setFeasibilityComplexity] = useState<string>('1.00');
+  const [feasibilityOtherPreset, setFeasibilityOtherPreset] = useState<string>('');
+  const [feasibilityOtherCustom, setFeasibilityOtherCustom] = useState<string>('');
+  const [feasibilityResultText, setFeasibilityResultText] = useState<string>('');
+  const [showFeasibilityResult, setShowFeasibilityResult] = useState<boolean>(false);
+  const [[feasibilityStep, feasibilityDirection], setFeasibilityStep] = useState<[number, number]>([0, 0]);
+
+  const navigateFeasibilityStep = (newStep: number) => {
+    setFeasibilityStep([newStep, newStep > feasibilityStep ? 1 : -1]);
+  };
+
+  // States for Design Fee Questionnaire（工程设计费，5 步向导，仅第 7 章 建筑市政工程设计）
+  const [designProvince, setDesignProvince] = useState<string>('全国');
+  const [designCategoryKey, setDesignCategoryKey] = useState<string>('cat-building');
+  const [designProfessionCustom, setDesignProfessionCustom] = useState<string>('');
+  const [designAmount, setDesignAmount] = useState<string>('');
+  const [designComplexityRefIndex, setDesignComplexityRefIndex] = useState<number>(0);
+  const [designComplexityKey, setDesignComplexityKey] = useState<string>('c2');
+  const [designFactorFlags, setDesignFactorFlags] = useState<Record<string, boolean>>({});
+  const [designFactorValues, setDesignFactorValues] = useState<Record<string, string>>({});
+  const [designModeKey, setDesignModeKey] = useState<string>('new');
+  const [designPartialAmend, setDesignPartialAmend] = useState<string>('60');
+  const [designOtherFeeFlags, setDesignOtherFeeFlags] = useState<Record<string, boolean>>({});
+  const [designOtherFeeRatios, setDesignOtherFeeRatios] = useState<Record<string, string>>({});
+  const [designManualPhase, setDesignManualPhase] = useState<boolean>(false);
+  const [designPhaseOverride, setDesignPhaseOverride] = useState<{ p1: string; p2: string; p3: string }>({ p1: '15', p2: '30', p3: '55' });
+  const [designShowComplexityTable, setDesignShowComplexityTable] = useState<boolean>(false);
+  const [designResultText, setDesignResultText] = useState<string>('');
+  const [showDesignResult, setShowDesignResult] = useState<boolean>(false);
+  const [[designStep, designDirection], setDesignStep] = useState<[number, number]>([0, 0]);
+
+  /** 步骤 4 各分区展开状态（默认只展开 ① 复杂程度） */
+  const [designSectionOpen, setDesignSectionOpen] = useState<Record<string, boolean>>({
+    complexity: true,
+    factors: false,
+    mode: false,
+    otherFees: false,
+    phases: false,
+  });
+
+  // 自定义省份（localStorage 持久化）
+  const [customDesignProvinces, setCustomDesignProvinces] = useState<CustomDesignProvince[]>(() => {
+    try {
+      const saved = localStorage.getItem('cost_calculator_custom_design_provinces');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showAddDesignProvinceModal, setShowAddDesignProvinceModal] = useState(false);
+  const [newDesignProvName, setNewDesignProvName] = useState('');
+  const [newDesignProvMultiplier, setNewDesignProvMultiplier] = useState('1.00');
+  const [newDesignProvCapRate, setNewDesignProvCapRate] = useState('');
+  const [newDesignProvWithC4, setNewDesignProvWithC4] = useState(false);
+  const [newDesignProvC4Factor, setNewDesignProvC4Factor] = useState('1.30');
+  const [newDesignProvAdvanced, setNewDesignProvAdvanced] = useState(false);
+  const [newDesignProvPrices, setNewDesignProvPrices] = useState<string[]>(DESIGN_NAT_PRICES.map(String));
+  const [designWizardError, setDesignWizardError] = useState('');
+
+  const navigateDesignStep = (newStep: number) => {
+    setDesignStep([newStep, newStep > designStep ? 1 : -1]);
+  };
 
   // States for Cost Consulting Questionnaire (Progressive step-by-step slider)
   const [consultingProvince, setConsultingProvince] = useState<string>('湖南省');
@@ -1032,7 +1385,10 @@ export default function App() {
         line.includes('项目总造价服务费用：') || 
         line.includes('项目总咨询费用：') || 
         line.includes('项目总跟踪审计费用：') ||
-        line.includes('项目总咨询服务费用：')
+        line.includes('项目总咨询服务费用：') ||
+        line.includes('项目总监理服务费用：') ||
+        line.includes('项目总前期工作咨询费用：') ||
+        line.includes('项目总设计费用：')
       ) {
         const parts = line.split('：');
         if (parts.length > 1) {
@@ -1747,47 +2103,300 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
     }
   };
 
-  const handleCalculate = () => {
-    const budget = parseFloat(engineeringBudget) || 0;
-    if (budget <= 0) {
-      alert('请输入有效的工程总预算');
+  // ==================== 工程设计费（5 步向导，全国口径 + 自定义省份） ====================
+  const getDesignStandard = (): DesignStandard => {
+    const custom = customDesignProvinces.find((p) => p.name === designProvince);
+    if (custom) return buildStandardFromMultiplier(custom);
+    return DESIGN_STANDARDS[DESIGN_PROVINCES[0]];
+  };
+
+  /** 是否为用户自定义省份（启用自定义规则） */
+  const isCustomDesignProvince = () => customDesignProvinces.some((p) => p.name === designProvince);
+
+  const saveCustomDesignProvinces = (list: CustomDesignProvince[]) => {
+    setCustomDesignProvinces(list);
+    try {
+      localStorage.setItem('cost_calculator_custom_design_provinces', JSON.stringify(list));
+    } catch {
+      /* ignore quota errors */
+    }
+  };
+
+  /** 由当前表单生成自定义省份对象（用于预览与保存） */
+  const buildNewDesignProvince = (): CustomDesignProvince => {
+    const mult = parseFloat(newDesignProvMultiplier);
+    const multiplier = Number.isFinite(mult) && mult > 0 ? mult : 1;
+    const cap = parseFloat(newDesignProvCapRate);
+    const capRate = Number.isFinite(cap) && cap > 0 ? cap : Math.round(DESIGN_NAT_CAP_RATE * multiplier * 100) / 100;
+    const c4 = parseFloat(newDesignProvC4Factor);
+    return {
+      name: newDesignProvName.trim(),
+      multiplier,
+      capRate,
+      withComplexity4: newDesignProvWithC4,
+      complexity4Factor: Number.isFinite(c4) && c4 > 0 ? c4 : 1.3,
+      prices: newDesignProvAdvanced
+        ? newDesignProvPrices.map((v, i) => {
+            const parsed = parseFloat(v);
+            return Number.isFinite(parsed) && parsed >= 0
+              ? parsed
+              : Math.round(DESIGN_NAT_PRICES[i] * multiplier * 10000) / 10000;
+          })
+        : undefined,
+    };
+  };
+
+  const handleSaveDesignProvince = () => {
+    const draft = buildNewDesignProvince();
+    if (!draft.name) {
+      setDesignWizardError('请填写省份名称');
       return;
     }
+    const updated = [...customDesignProvinces.filter((p) => p.name !== draft.name), draft];
+    saveCustomDesignProvinces(updated);
+    setDesignProvince(draft.name);
+    setDesignComplexityKey('c2');
+    setDesignManualPhase(false);
+    applyDesignCategory(designCategoryKey);
+    setShowDesignResult(false);
+    setShowAddDesignProvinceModal(false);
+    setDesignWizardError('');
+  };
 
-    // 1. Calculate Design Fee
-    const designTotal = calculateDesignFee(budget, DESIGN_FEE_TABLE.axis, DESIGN_FEE_TABLE.basePrices, industryFactor);
-    
-    // 2. Calculate Feasibility Fee
-    const feasibility = calculateFeasibilityFee(budget, FEASIBILITY_FEE_CONFIG, industryFactor);
-    
-    // 3. Calculate Supervision Fee
-    const supervisionTotal = calculateSupervisionFee(budget, SUPERVISION_FEE_CONFIG.axis, SUPERVISION_FEE_CONFIG.rates, industryFactor);
+  const removeCustomDesignProvince = (name: string) => {
+    saveCustomDesignProvinces(customDesignProvinces.filter((p) => p.name !== name));
+    if (designProvince === name) setDesignProvince('全国');
+  };
 
-    // 4. Calculate Consulting Fee
-    const consulting = calculateConsultingFee(budget, CONSULTING_FEE_CONFIG, industryFactor);
+  /** 应用某省份（内置规则或自定义规则），并重置相关状态 */
+  const applyDesignProvince = (name: string) => {
+    setDesignProvince(name);
+    setShowDesignResult(false);
+    setDesignComplexityKey('c2');
+    setDesignManualPhase(false);
+    // 自定义省份同样只提供第 7 章工程类别，仅基价表 / 封顶费率不同
+    applyDesignCategory(designCategoryKey);
+  };
 
-    setCalcResults({
-      budget,
-      activeSubTab: calculatorSubTab,
-      design: {
-        total: designTotal,
-        p1: designTotal * (phases.p1 / 100),
-        p2: designTotal * (phases.p2 / 100),
-        p3: designTotal * (phases.p3 / 100)
-      },
-      feasibility: {
-        total: feasibility.total,
-        details: feasibility.details
-      },
-      supervision: {
-        total: supervisionTotal
-      },
-      consulting: {
-        total: consulting.total,
-        details: consulting.details
+  const getDesignCategory = (): DesignCategory =>
+    DESIGN_CATEGORIES.find((c) => c.key === designCategoryKey) || DESIGN_CATEGORIES[0];
+
+  /** 当前类别可选的复杂程度表（自定义类别时可选全部 4 张表） */
+  const getDesignComplexityRefs = (): DesignComplexityRef[] =>
+    designCategoryKey === CATEGORY_CUSTOM_VALUE
+      ? DESIGN_CUSTOM_COMPLEXITY_REFS
+      : getDesignCategory().complexityRefs;
+
+  const getDesignComplexityRef = (): DesignComplexityRef => {
+    const refs = getDesignComplexityRefs();
+    return refs[designComplexityRefIndex] || refs[0];
+  };
+
+  const getDesignComplexityTable = () =>
+    DESIGN_COMPLEXITY_TABLES[getDesignComplexityRef().table] || DESIGN_COMPLEXITY_TABLES.t731;
+
+  const getDesignProfessionFactor = (): number => {
+    if (designCategoryKey === CATEGORY_CUSTOM_VALUE) {
+      const v = parseFloat(designProfessionCustom);
+      return Number.isFinite(v) && v > 0 ? v : 1.0;
+    }
+    return getDesignCategory().professionFactor;
+  };
+
+  const getDesignCategoryName = (): string =>
+    designCategoryKey === CATEGORY_CUSTOM_VALUE
+      ? `自定义工程类别（专业系数 ${getDesignProfessionFactor()}）`
+      : getDesignCategory().name;
+
+  /** 计费额口径提示（弱电 / 室内装修 / 特殊声学装修以各自的设计概算为计费额） */
+  const getDesignBillingNote = (): string =>
+    getDesignStandard()
+      .additionalFactors.filter((f) => designFactorFlags[f.key] && f.billingNote)
+      .map((f) => f.billingNote as string)
+      .join('；');
+
+  const getDesignComplexity = () => {
+    const table = getDesignComplexityTable();
+    return table.levels.find((l) => l.key === designComplexityKey) || table.levels[1] || table.levels[0];
+  };
+
+  /** 各阶段工作量比例：按「工程类别 + 复杂程度表 + 复杂程度等级」查表 7.2-1，可手工覆盖 */
+  const getDesignPhase = (): { name: string; p1: number; p2: number; p3: number } => {
+    const cat = designCategoryKey === CATEGORY_CUSTOM_VALUE ? '自定义工程类别' : getDesignCategory().name;
+    const lvl = getDesignComplexity();
+    if (designManualPhase) {
+      return {
+        name: `${cat}（手工调整）`,
+        p1: parseFloat(designPhaseOverride.p1) || 0,
+        p2: parseFloat(designPhaseOverride.p2) || 0,
+        p3: parseFloat(designPhaseOverride.p3) || 0,
+      };
+    }
+    const byLevel = getDesignComplexityRef().phaseByLevel;
+    const t = byLevel[lvl.key as 'c1' | 'c2' | 'c3'] || byLevel.c2;
+    return { name: cat, p1: t[0], p2: t[1], p3: t[2] };
+  };
+
+  /** 切换工程类别：重置复杂程度表与修正系数，并恢复自动阶段比例 */
+  const applyDesignCategory = (key: string) => {
+    setDesignCategoryKey(key);
+    setDesignComplexityRefIndex(0);
+    setDesignFactorFlags({});
+    setDesignFactorValues({});
+    setDesignManualPhase(false);
+    setDesignShowComplexityTable(false);
+    setShowDesignResult(false);
+  };
+
+  const getDesignAdditionalFactors = () =>
+    getDesignStandard()
+      .additionalFactors.filter((f) => designFactorFlags[f.key])
+      .map((f) => {
+        const raw = designFactorValues[f.key];
+        const parsed = parseFloat(raw);
+        const value = Number.isFinite(parsed) && parsed > 0 ? parsed : f.factor;
+        return { name: f.name, factor: value };
+      });
+
+  const getDesignMode = () => DESIGN_MODES.find((m) => m.key === designModeKey) || DESIGN_MODES[0];
+
+  const getDesignModeFactor = (): number => {
+    if (designModeKey === 'partial_amend') {
+      const v = parseFloat(designPartialAmend);
+      return Number.isFinite(v) && v > 0 ? Math.min(Math.max(v, 40), 80) / 100 : 0.6;
+    }
+    return getDesignMode().factor;
+  };
+
+  const getDesignOtherFees = () =>
+    getDesignStandard()
+      .otherFees.filter((f) => designOtherFeeFlags[f.key])
+      .map((f) => {
+        const raw = designOtherFeeRatios[f.key];
+        const parsed = parseFloat(raw);
+        const percent = Number.isFinite(parsed) ? parsed : f.ratio * 100;
+        return { name: f.name, ratio: Math.max(percent, 0) / 100 };
+      });
+
+  /** 修正系数合并预览（各系数之和 − 系数个数 + 1） */
+  const mergeFactorPreview = (factors: number[]): number => {
+    if (factors.length === 0) return 1;
+    if (factors.length === 1) return factors[0];
+    return factors.reduce((s, v) => s + v, 0) - factors.length + 1;
+  };
+
+  /** 综合调整系数预览（专业 × 复杂程度 × 修正 × 计费模式） */
+  const designPreviewTotalFactor = (): number =>
+    getDesignProfessionFactor() *
+    getDesignComplexity().factor *
+    mergeFactorPreview(getDesignAdditionalFactors().map((f) => f.factor)) *
+    getDesignModeFactor();
+
+  /** 各阶段金额（万元），用于报告页汇总卡片 */
+  const getDesignPhaseAmounts = () => {
+    const total = getDesignFeeWanyuan();
+    if (total === null) return [];
+    const phase = getDesignPhase();
+    return [
+      { name: '方案设计', percent: phase.p1 },
+      { name: '初步设计', percent: phase.p2 },
+      { name: '施工图设计', percent: phase.p3 },
+    ]
+      .filter((p) => p.percent > 0)
+      .map((p) => ({ ...p, wan: (total * p.percent) / 100 }));
+  };
+
+  /** 折叠步骤 4 的某个分区 */
+  const toggleDesignSection = (key: string) =>
+    setDesignSectionOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  /** 从设计费报告文本中提取总费用（万元），未测算时返回 null */
+  const getDesignFeeWanyuan = (): number | null => {
+    if (!showDesignResult || !designResultText) return null;
+    const feeText = extractFeeOnly(designResultText);
+    const value = parseFloat(String(feeText).replace(/[^\d.]/g, ''));
+    return Number.isFinite(value) ? value / 10000 : null;
+  };
+
+  const resetDesignWizard = () => {
+    applyDesignCategory('cat-building');
+    setDesignProfessionCustom('');
+    setDesignAmount('');
+    setDesignComplexityRefIndex(0);
+    setDesignComplexityKey('c2');
+    setDesignModeKey('new');
+    setDesignPartialAmend('60');
+    setDesignOtherFeeFlags({});
+    setDesignOtherFeeRatios({});
+    setDesignManualPhase(false);
+    setDesignShowComplexityTable(false);
+    setShowDesignResult(false);
+    navigateDesignStep(0);
+  };
+
+  const handleCalculateDesign = async () => {
+    const amount = parseFloat(designAmount);
+    if (!(amount > 0)) {
+      setDesignWizardError(`请输入有效的${DESIGN_BILLING_BASE_LABEL}`);
+      return;
+    }
+    const complexity = getDesignComplexity();
+    const phase = getDesignPhase();
+    const sum = phase.p1 + phase.p2 + phase.p3;
+    if (Math.abs(sum - 100) > 0.01) {
+      setDesignWizardError(`各阶段工作量比例合计应为 100%，当前为 ${sum}%`);
+      return;
+    }
+    setDesignWizardError('');
+    const payload = {
+      province: isCustomDesignProvince() ? designProvince : '全国',
+      provinceLabel: designProvince,
+      amount,
+      categoryName: getDesignCategoryName(),
+      billingNote: getDesignBillingNote(),
+      professionFactor: getDesignProfessionFactor(),
+      complexityTableName: getDesignComplexityTable().name,
+      complexityName: complexity.name,
+      complexityFactor: complexity.factor,
+      additionalFactors: getDesignAdditionalFactors(),
+      modeName: getDesignMode().name,
+      modeFactor: getDesignModeFactor(),
+      otherFees: getDesignOtherFees(),
+      phase,
+    };
+
+    // 优先调用后端 API（自定义省份时附带 standard 快照）
+    try {
+      const response = await fetch('http://localhost:3001/api/calculate-design', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          isCustomDesignProvince() ? { ...payload, standard: getDesignStandard() } : payload
+        ),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDesignResultText(data.reportText);
+        setShowDesignResult(true);
+        return;
       }
-    });
+    } catch (err) {
+      console.warn('Design API unavailable, falling back to local computation:', err);
+    }
 
+    // 本地回退计算
+    const result = calculateDesign({
+      standard: getDesignStandard(),
+      ...payload,
+    });
+    setDesignResultText(result.reportText);
+    setShowDesignResult(true);
+  };
+
+  /** 跳转报告页汇总（同步项目概算总计） */
+  const goToReportPage = () => {
+    const amt = parseFloat(designAmount);
+    setCalcResults({ budget: Number.isFinite(amt) && amt > 0 ? amt : 0 });
     setActiveTab('report');
   };
 
@@ -1852,131 +2461,1724 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                   ))}
                 </div>
 
-                {/* 子页面 1：工程设计费 */}
+                {/* 子页面 1：工程设计费（5 步向导） */}
                 {calculatorSubTab === 'design' && (
-                  <div className="space-y-6 px-1 animate-fadeIn">
-                    <div className="p-5 bg-white border border-[#c6c6cd]/60 shadow-sm rounded-2xl">
-                      <label className="block text-sm font-bold mb-2 ml-1 text-[#0F172A]">工程总预算 (万元)</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-2xl font-black text-[#0F172A]">¥</span>
-                        <input
-                          type="number"
-                          placeholder="0.00"
-                          value={engineeringBudget}
-                          onChange={(e) => setEngineeringBudget(e.target.value)}
-                          className="w-full border-b border-[#c6c6cd] bg-transparent pl-10 pr-4 py-3 text-2xl font-black focus:outline-none focus:border-[#008ebf] placeholder:text-[#c6c6cd]"
-                        />
+                  <div className="space-y-10 px-4 py-8 animate-fadeIn max-w-4xl mx-auto w-full">
+                    {/* 顶部滑动指示器 */}
+                    <div className="max-w-xl mx-auto mb-8 px-1">
+                      <div className="flex justify-between text-[9px] font-bold text-[#76777d] mb-3 uppercase tracking-wider">
+                        {DESIGN_STEPS.map((stepText, idx) => (
+                          <span key={idx} className={designStep === idx ? 'text-[#007AFF]' : ''}>
+                            {stepText}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="h-1.5 bg-[#eceef0] rounded-full overflow-hidden flex gap-1">
+                        {DESIGN_STEPS.map((_, idx) => (
+                          <div
+                            key={idx}
+                            className={`h-full flex-1 transition-all duration-300 rounded-full ${designStep >= idx ? 'bg-[#007AFF]' : 'bg-[#c6c6cd]/30'}`}
+                          />
+                        ))}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1 px-1">
-                        <label className="text-[12px] font-semibold text-[#45464d] ml-1">项目所在区域/城市</label>
-                        <select 
-                          value={selectedRegion}
-                          onChange={(e) => setSelectedRegion(e.target.value)}
-                          className="w-full border border-[#c6c6cd] bg-white px-3 py-3 text-sm rounded-xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none"
-                        >
-                          <option value="">选择省份 / 城市</option>
-                          <option>湖南省</option>
-                          <option>北京市</option>
-                          <option>上海市</option>
-                          <option>广东省</option>
-                        </select>
-                      </div>
+                    <div className="max-w-2xl w-full mx-auto select-none">
+                      <div className="relative overflow-hidden min-h-[460px] flex flex-col justify-center">
+                        <div className="contents">
 
-                      <div className="space-y-1 px-1">
-                        <label className="text-[12px] font-semibold text-[#45464d] ml-1">工程所属行业</label>
-                        <select 
-                          value={selectedIndustry}
-                          onChange={(e) => setSelectedIndustry(e.target.value)}
-                          className="w-full border border-[#c6c6cd] bg-white px-3 py-3 text-sm rounded-xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none"
-                        >
-                          <option>1、石化、化工、钢铁</option>
-                          <option>2、石油、天然气、水利、水电、交通（水运）、化纤</option>
-                          <option>3、有色、黄金、纺织、轻工、邮电、广播、电视、医药、煤炭、火电（含核电）、机械（含船舶、航空、航天、兵器）</option>
-                          <option>4、林业、商业、粮食、建筑</option>
-                          <option>5、建材、交通（公路）、铁道、市政公用工程</option>
-                        </select>
+                          {/* 步骤 1：测算省份 */}
+                          {designStep === 0 && (
+                            <motion.div
+                              key="des-step-0"
+                              custom={designDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-8 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full"
+                            >
+                              <div className="flex flex-col items-center gap-3.5 mb-2">
+                                <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                  <MapPin className="w-6 h-6" />
+                                </div>
+                                <h3 className="text-xl font-bold text-[#0F172A]">测算省份</h3>
+                              </div>
+                              <p className="text-xs text-[#76777d]">
+                                设计费统一按《工程勘察设计收费管理规定》（计价格〔2002〕10 号）测算。
+                                如需标注项目所在省份，可在下方选择；若某省有正式计费文件，可通过「新增自定义省份」录入。
+                              </p>
+                              <div className="relative mt-2 max-w-xs mx-auto">
+                                <select
+                                  value={designProvince}
+                                  onChange={(e) => {
+                                    if (e.target.value === 'ADD_CUSTOM') {
+                                      setShowAddDesignProvinceModal(true);
+                                      return;
+                                    }
+                                    applyDesignProvince(e.target.value);
+                                    setTimeout(() => navigateDesignStep(1), 150);
+                                  }}
+                                  className="w-full border border-[#c6c6cd] bg-white px-4 py-4 text-sm rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.2rem_1.2rem] bg-[right_1rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none font-semibold text-[#0F172A] text-center"
+                                >
+                                  <option value="全国">全国（计价格〔2002〕10号）</option>
+                                  {DESIGN_PROVINCE_NAMES.map((p) => (
+                                    <option key={p} value={p}>{p}</option>
+                                  ))}
+                                  {customDesignProvinces.map((p) => (
+                                    <option key={p.name} value={p.name}>{p.name}（自定义 × {p.multiplier}）</option>
+                                  ))}
+                                  <option value="ADD_CUSTOM">+ 新增自定义省份...</option>
+                                </select>
+                              </div>
+
+                              {designProvince !== '全国' && !isCustomDesignProvince() && (
+                                <p className="text-[10px] text-[#007AFF] leading-relaxed">
+                                  已选省份仅用于报告标注，计算仍按全国（计价格〔2002〕10号）标准执行。
+                                </p>
+                              )}
+
+                              <div className="flex justify-center pt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => navigateDesignStep(1)}
+                                  className="px-8 py-3.5 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                                >
+                                  继续
+                                  <ChevronRight className="w-4 h-4 text-white" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+
+                          {/* 步骤 2：工程类别（第 7 章 建筑市政工程设计） */}
+                          {designStep === 1 && (
+                            <motion.div
+                              key="des-step-1"
+                              custom={designDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-8 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full"
+                            >
+                              <div className="flex flex-col items-center gap-3.5 mb-2">
+                                <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                  <Layers className="w-6 h-6" />
+                                </div>
+                                <h3 className="text-xl font-bold text-[#0F172A]">工程类别</h3>
+                              </div>
+                              <p className="text-xs text-[#76777d]">
+                                本工具仅测算《工程设计收费标准》<b>第 7 章 建筑市政工程设计</b>，
+                                适用于建筑、人防、市政公用、园林绿化、电信、广播电视、邮政工程。
+                              </p>
+                              <div className="relative mt-2">
+                                <select
+                                  value={designCategoryKey}
+                                  onChange={(e) => {
+                                    if (e.target.value === CATEGORY_CUSTOM_VALUE) {
+                                      setDesignProfessionCustom('');
+                                    }
+                                    applyDesignCategory(e.target.value);
+                                  }}
+                                  className="w-full border border-[#c6c6cd] bg-white px-4 py-4 text-[12px] rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.1rem_1.1rem] bg-[right_0.9rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A] leading-relaxed"
+                                >
+                                  {DESIGN_CATEGORIES.map((c) => (
+                                    <option key={c.key} value={c.key}>{c.name}（专业系数 {c.professionFactor}）</option>
+                                  ))}
+                                  <option value={CATEGORY_CUSTOM_VALUE}>自定义工程类别（手动输入专业系数）</option>
+                                </select>
+                              </div>
+
+                              {designCategoryKey === CATEGORY_CUSTOM_VALUE && (
+                                <div className="relative mt-2 max-w-xs mx-auto">
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    value={designProfessionCustom}
+                                    onChange={(e) => {
+                                      setDesignProfessionCustom(e.target.value);
+                                      setShowDesignResult(false);
+                                    }}
+                                    placeholder="请输入专业系数，如 1.00"
+                                    className="w-full border border-[#c6c6cd] bg-white px-4 py-3 pr-14 text-sm rounded-2xl focus:border-[#007AFF] focus:ring-1 focus:ring-[#007AFF] outline-none font-mono font-semibold text-center"
+                                  />
+                                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[#76777d]">系数</span>
+                                </div>
+                              )}
+
+                              <div className="space-y-1.5 p-4 bg-[#f7f9fb] rounded-2xl border border-[#eceef0] text-left">
+                                <div className="flex justify-between text-[11px]">
+                                  <span className="text-[#76777d]">专业调整系数（附表二 第 6 类）</span>
+                                  <span className="font-black text-[#007AFF] font-mono">{getDesignProfessionFactor().toFixed(2)}</span>
+                                </div>
+                                {designCategoryKey !== CATEGORY_CUSTOM_VALUE && (
+                                  <div className="flex justify-between text-[11px]">
+                                    <span className="text-[#76777d]">复杂程度表</span>
+                                    <span className="text-[#45464d] text-right">
+                                      {getDesignComplexityRefs().length > 1
+                                        ? `${getDesignComplexityRefs().length} 张可选（步骤如下 ① 选择）`
+                                        : getDesignComplexityTable().name}
+                                    </span>
+                                  </div>
+                                )}
+                                {getDesignComplexityTable().note && (
+                                  <p className="text-[10px] text-[#a1a1aa] pt-1 leading-relaxed">
+                                    {getDesignComplexityTable().note}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="flex justify-center pt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => navigateDesignStep(2)}
+                                  className="px-8 py-3.5 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                                >
+                                  继续
+                                  <ChevronRight className="w-4 h-4 text-white" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+
+                          {/* 步骤 3：计费基数 */}
+                          {designStep === 2 && (
+                            <motion.div
+                              key="des-step-2"
+                              custom={designDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-8 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full animate-fadeIn"
+                            >
+                              <div className="flex flex-col items-center gap-3.5 mb-2">
+                                <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                  <BarChart3 className="w-6 h-6" />
+                                </div>
+                                <h3 className="text-xl font-bold text-[#0F172A]">录入计费基数</h3>
+                                <p className="text-xs text-[#76777d]">（{DESIGN_BILLING_BASE_LABEL}）</p>
+                                <p className="text-[10px] text-[#a1a1aa] -mt-2">{DESIGN_BILLING_BASE_HINT}</p>
+                              </div>
+
+                              {getDesignBillingNote() && (
+                                <p className="text-[10px] text-[#007AFF] leading-relaxed px-2 -mt-4">
+                                  ⚠ {getDesignBillingNote()}
+                                </p>
+                              )}
+
+                              <div className="relative mt-2 max-w-xs mx-auto">
+                                <input
+                                  type="number"
+                                  value={designAmount}
+                                  onChange={(e) => {
+                                    setDesignAmount(e.target.value);
+                                    setShowDesignResult(false);
+                                  }}
+                                  placeholder="请输入计费额（万元）"
+                                  className="w-full border border-[#c6c6cd] bg-white px-5 py-5 pr-12 text-base rounded-2xl focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A] font-bold text-center font-mono shadow-sm"
+                                />
+                                <span className="absolute right-5 top-1/2 -translate-y-1/2 text-sm text-[#76777d]">万元</span>
+                              </div>
+
+                              <div className="text-[10px] text-[#76777d] leading-relaxed px-2">
+                                计费档位（万元）：{getDesignStandard().tierLabels.join(' ｜ ')}
+                                <br />＞末档按 {getDesignStandard().capRate}% 计
+                              </div>
+
+                              {designAmount && parseFloat(designAmount) > 0 && (
+                                <motion.div
+                                  initial={{ opacity: 0, scale: 0.95 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  className="pt-2 flex justify-center"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => navigateDesignStep(3)}
+                                    className="px-8 py-3.5 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-95 flex items-center gap-1.5 animate-fadeIn"
+                                  >
+                                    继续
+                                    <ChevronRight className="w-4 h-4 text-white" />
+                                  </button>
+                                </motion.div>
+                              )}
+                            </motion.div>
+                          )}
+
+                          {/* 步骤 4：阶段与调整系数 */}
+                          {designStep === 3 && (
+                            <div className="space-y-6 w-full animate-fadeIn">
+                              <motion.div
+                                key="des-step-3"
+                                custom={designDirection}
+                                variants={wizardVariants}
+                                initial="enter"
+                                animate="center"
+                                exit="exit"
+                                className="space-y-6 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full"
+                              >
+                                <div className="flex flex-col items-center gap-3.5 mb-2">
+                                  <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                    <Award className="w-6 h-6" />
+                                  </div>
+                                  <h3 className="text-xl font-bold text-[#0F172A]">阶段与调整系数</h3>
+                                </div>
+
+                                <div className="space-y-6 text-left">
+                                  {/* ① 工程复杂程度 */}
+                                  <div className="border border-[#eceef0] rounded-2xl overflow-hidden">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleDesignSection('complexity')}
+                                      className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-[#f7f9fb]"
+                                    >
+                                      <span className="text-[11px] font-bold text-[#0F172A]">① 工程复杂程度调整系数</span>
+                                      <span className="flex items-center gap-2 min-w-0">
+                                        <span className="text-[10px] text-[#76777d] truncate">{getDesignComplexity().name} · {getDesignComplexity().factor.toFixed(2)}</span>
+                                        <ChevronDown className={`w-3.5 h-3.5 text-[#76777d] shrink-0 transition-transform ${designSectionOpen.complexity ? 'rotate-180' : ''}`} />
+                                      </span>
+                                    </button>
+                                    {designSectionOpen.complexity && (
+                                    <div className="px-4 py-3 border-t border-[#eceef0] space-y-2">
+                                    {getDesignComplexityRefs().length > 1 && (
+                                      <div className="space-y-1">
+                                        <span className="block text-[10px] text-[#76777d]">复杂程度表（选择工程内容）</span>
+                                        <select
+                                          value={String(designComplexityRefIndex)}
+                                          onChange={(e) => {
+                                            setDesignComplexityRefIndex(Number(e.target.value));
+                                            setDesignComplexityKey('c2');
+                                            setDesignManualPhase(false);
+                                            setDesignShowComplexityTable(false);
+                                            setShowDesignResult(false);
+                                          }}
+                                          className="w-full border border-[#c6c6cd] bg-white px-4 py-3 text-[12px] rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.1rem_1.1rem] bg-[right_0.9rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A]"
+                                        >
+                                          {getDesignComplexityRefs().map((ref, i) => (
+                                            <option key={ref.table} value={String(i)}>
+                                              {DESIGN_COMPLEXITY_TABLES[ref.table]?.name || ref.table}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    )}
+                                    <select
+                                      value={designComplexityKey}
+                                      onChange={(e) => {
+                                        setDesignComplexityKey(e.target.value);
+                                        setShowDesignResult(false);
+                                      }}
+                                      className="w-full border border-[#c6c6cd] bg-white px-4 py-3 text-[12px] rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.1rem_1.1rem] bg-[right_0.9rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A]"
+                                    >
+                                      {getDesignComplexityTable().levels.map((c) => (
+                                        <option key={c.key} value={c.key}>{c.name}（调整系数 {c.factor}）</option>
+                                      ))}
+                                    </select>
+
+                                    {/* 当前等级的工程设计条件 */}
+                                    <div className="space-y-1">
+                                      {getDesignComplexity().conditions.map((cond, i) => (
+                                        <p key={i} className="text-[10px] text-[#76777d] leading-relaxed">· {cond}</p>
+                                      ))}
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => setDesignShowComplexityTable(!designShowComplexityTable)}
+                                      className="flex items-center gap-1.5 text-[10px] font-bold text-[#007AFF] hover:underline"
+                                    >
+                                      <ChevronDown className={`w-3 h-3 transition-transform ${designShowComplexityTable ? 'rotate-180' : ''}`} />
+                                      {designShowComplexityTable ? '收起完整复杂程度表' : `查看完整复杂程度表（${getDesignComplexityTable().name}）`}
+                                    </button>
+                                    {designShowComplexityTable && (
+                                      <div className="space-y-2 p-3 bg-[#f7f9fb] rounded-xl border border-[#eceef0]">
+                                        <div className="text-[10px] font-bold text-[#0F172A]">{getDesignComplexityTable().name}</div>
+                                        {getDesignComplexityTable().levels.map((lvl) => (
+                                          <div key={lvl.key} className="space-y-0.5">
+                                            <span className={`text-[10px] font-bold ${lvl.key === designComplexityKey ? 'text-[#007AFF]' : 'text-[#45464d]'}`}>
+                                              {lvl.name}（调整系数 {lvl.factor}）
+                                            </span>
+                                            {lvl.conditions.map((cond, i) => (
+                                              <p key={i} className="text-[9px] text-[#a1a1aa] leading-relaxed">{i + 1}．{cond}</p>
+                                            ))}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    </div>
+                                    )}
+                                  </div>
+
+                                  {/* ② 修正（附加）调整系数 */}
+                                  {getDesignStandard().additionalFactors.length > 0 && (
+                                    <div className="border border-[#eceef0] rounded-2xl overflow-hidden">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleDesignSection('factors')}
+                                        className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-[#f7f9fb]"
+                                      >
+                                        <span className="text-[11px] font-bold text-[#0F172A]">② 修正（附加）调整系数（可多选）</span>
+                                        <span className="flex items-center gap-2 min-w-0">
+                                          <span className="text-[10px] text-[#76777d] truncate">
+                                            {getDesignAdditionalFactors().length > 0
+                                              ? `已选 ${getDesignAdditionalFactors().length} 项 · 合并 ${mergeFactorPreview(getDesignAdditionalFactors().map((f) => f.factor)).toFixed(4)}`
+                                              : '未选择'}
+                                          </span>
+                                          <ChevronDown className={`w-3.5 h-3.5 text-[#76777d] shrink-0 transition-transform ${designSectionOpen.factors ? 'rotate-180' : ''}`} />
+                                        </span>
+                                      </button>
+                                      {designSectionOpen.factors && (
+                                      <div className="px-4 py-3 border-t border-[#eceef0] space-y-2">
+                                      <p className="text-[10px] text-[#a1a1aa] leading-relaxed">两个及以上的修正系数不能连乘，按「各系数之和 − 系数个数 + 1」合并。</p>
+                                      {getDesignStandard().additionalFactors.map((f) => {
+                                        const checked = !!designFactorFlags[f.key];
+                                        return (
+                                          <div key={f.key} className="space-y-1">
+                                            <label className="flex items-start gap-3 cursor-pointer">
+                                              <input
+                                                type={f.group ? 'radio' : 'checkbox'}
+                                                name={f.group ? `des-factor-${f.group}` : undefined}
+                                                checked={checked}
+                                                onChange={() => {
+                                                  setDesignFactorFlags((prev) => {
+                                                    const next = { ...prev };
+                                                    if (f.group) {
+                                                      Object.keys(next).forEach((k) => {
+                                                        const o = getDesignStandard().additionalFactors.find((x) => x.key === k);
+                                                        if (o?.group === f.group) delete next[k];
+                                                      });
+                                                      next[f.key] = true;
+                                                    } else {
+                                                      next[f.key] = !prev[f.key];
+                                                    }
+                                                    return next;
+                                                  });
+                                                  if (designFactorValues[f.key] === undefined) {
+                                                    setDesignFactorValues((prev) => ({ ...prev, [f.key]: String(f.factor) }));
+                                                  }
+                                                  setShowDesignResult(false);
+                                                }}
+                                                className="w-4 h-4 accent-[#007AFF] cursor-pointer mt-0.5"
+                                              />
+                                              <span className="flex-1">
+                                                <span className="block text-[11px] text-[#45464d] leading-relaxed">{f.name}（{f.factor}）</span>
+                                                {f.note && <span className="block text-[9px] text-[#a1a1aa] mt-0.5 leading-relaxed">{f.note}</span>}
+                                              </span>
+                                            </label>
+                                            {checked && f.editable && (
+                                              <div className="relative max-w-[160px] ml-7">
+                                                <input
+                                                  type="number"
+                                                  step="0.01"
+                                                  value={designFactorValues[f.key] ?? String(f.factor)}
+                                                  onChange={(e) => {
+                                                    setDesignFactorValues((prev) => ({ ...prev, [f.key]: e.target.value }));
+                                                    setShowDesignResult(false);
+                                                  }}
+                                                  className="w-full border border-[#c6c6cd] bg-white px-3 py-2 pr-12 text-xs rounded-xl focus:border-[#007AFF] outline-none font-mono font-semibold text-center"
+                                                />
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#76777d]">系数</span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                      {getDesignAdditionalFactors().length > 0 && (
+                                        <div className="p-3 bg-[#f7f9fb] rounded-xl border border-[#eceef0] text-center">
+                                          <span className="text-[10px] text-[#76777d]">合并后修正系数：</span>
+                                          <span className="text-sm font-black text-[#007AFF] font-mono ml-1">
+                                            {mergeFactorPreview(getDesignAdditionalFactors().map((f) => f.factor)).toFixed(4)}
+                                          </span>
+                                        </div>
+                                      )}
+                                      </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* ③ 计费模式 */}
+                                  <div className="border border-[#eceef0] rounded-2xl overflow-hidden">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleDesignSection('mode')}
+                                      className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-[#f7f9fb]"
+                                    >
+                                      <span className="text-[11px] font-bold text-[#0F172A]">③ 计费模式</span>
+                                      <span className="flex items-center gap-2 min-w-0">
+                                        <span className="text-[10px] text-[#76777d] truncate">{getDesignMode().name.split('（')[0]} · × {getDesignModeFactor().toFixed(2)}</span>
+                                        <ChevronDown className={`w-3.5 h-3.5 text-[#76777d] shrink-0 transition-transform ${designSectionOpen.mode ? 'rotate-180' : ''}`} />
+                                      </span>
+                                    </button>
+                                    {designSectionOpen.mode && (
+                                    <div className="px-4 py-3 border-t border-[#eceef0] space-y-1.5">
+                                    <select
+                                      value={designModeKey}
+                                      onChange={(e) => {
+                                        setDesignModeKey(e.target.value);
+                                        setShowDesignResult(false);
+                                      }}
+                                      className="w-full border border-[#c6c6cd] bg-white px-4 py-3 text-[11px] rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.1rem_1.1rem] bg-[right_0.9rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A] leading-relaxed"
+                                    >
+                                      {DESIGN_MODES.map((m) => (
+                                        <option key={m.key} value={m.key}>{m.name}</option>
+                                      ))}
+                                    </select>
+                                    {designModeKey === 'partial_amend' && (
+                                      <div className="relative max-w-[160px]">
+                                        <input
+                                          type="number"
+                                          step="5"
+                                          min="40"
+                                          max="80"
+                                          value={designPartialAmend}
+                                          onChange={(e) => {
+                                            setDesignPartialAmend(e.target.value);
+                                            setShowDesignResult(false);
+                                          }}
+                                          className="w-full border border-[#c6c6cd] bg-white px-3 py-2 pr-10 text-xs rounded-xl focus:border-[#007AFF] outline-none font-mono font-semibold text-center"
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#76777d]">%</span>
+                                      </div>
+                                    )}
+                                    </div>
+                                    )}
+                                  </div>
+
+                                  {/* ④ 其他设计收费 */}
+                                  {getDesignStandard().otherFees.length > 0 && (
+                                    <div className="border border-[#eceef0] rounded-2xl overflow-hidden">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleDesignSection('otherFees')}
+                                        className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-[#f7f9fb]"
+                                      >
+                                        <span className="text-[11px] font-bold text-[#0F172A]">④ 其他设计收费（可多选）</span>
+                                        <span className="flex items-center gap-2 min-w-0">
+                                          <span className="text-[10px] text-[#76777d] truncate">
+                                            {getDesignOtherFees().length > 0 ? `已选 ${getDesignOtherFees().length} 项` : '未选择'}
+                                          </span>
+                                          <ChevronDown className={`w-3.5 h-3.5 text-[#76777d] shrink-0 transition-transform ${designSectionOpen.otherFees ? 'rotate-180' : ''}`} />
+                                        </span>
+                                      </button>
+                                      {designSectionOpen.otherFees && (
+                                      <div className="px-4 py-3 border-t border-[#eceef0] space-y-2">
+                                      {getDesignStandard().otherFees.map((f) => {
+                                        const checked = !!designOtherFeeFlags[f.key];
+                                        return (
+                                          <div key={f.key} className="space-y-1">
+                                            <label className="flex items-start gap-3 cursor-pointer">
+                                              <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={() => {
+                                                  setDesignOtherFeeFlags((prev) => ({ ...prev, [f.key]: !prev[f.key] }));
+                                                  if (designOtherFeeRatios[f.key] === undefined) {
+                                                    setDesignOtherFeeRatios((prev) => ({ ...prev, [f.key]: String(f.ratio * 100) }));
+                                                  }
+                                                  setShowDesignResult(false);
+                                                }}
+                                                className="w-4 h-4 accent-[#007AFF] cursor-pointer mt-0.5"
+                                              />
+                                              <span className="flex-1">
+                                                <span className="block text-[11px] text-[#45464d] leading-relaxed">{f.name}（基本设计收费 × {f.ratio * 100}%）</span>
+                                                {f.note && <span className="block text-[9px] text-[#a1a1aa] mt-0.5 leading-relaxed">{f.note}</span>}
+                                              </span>
+                                            </label>
+                                            {checked && f.editable && (
+                                              <div className="relative max-w-[160px] ml-7">
+                                                <input
+                                                  type="number"
+                                                  step="0.5"
+                                                  min="0"
+                                                  value={designOtherFeeRatios[f.key] ?? String(f.ratio * 100)}
+                                                  onChange={(e) => {
+                                                    setDesignOtherFeeRatios((prev) => ({ ...prev, [f.key]: e.target.value }));
+                                                    setShowDesignResult(false);
+                                                  }}
+                                                  className="w-full border border-[#c6c6cd] bg-white px-3 py-2 pr-10 text-xs rounded-xl focus:border-[#007AFF] outline-none font-mono font-semibold text-center"
+                                                />
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#76777d]">%</span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                      </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* ⑤ 各阶段工作量比例 */}
+                                  <div className="border border-[#eceef0] rounded-2xl overflow-hidden">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleDesignSection('phases')}
+                                      className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-[#f7f9fb]"
+                                    >
+                                      <span className="text-[11px] font-bold text-[#0F172A]">⑤ 各阶段工作量比例</span>
+                                      <span className="flex items-center gap-2 min-w-0">
+                                        <span className="text-[10px] text-[#76777d] truncate">
+                                          {getDesignPhase().p1}% / {getDesignPhase().p2}% / {getDesignPhase().p3}%
+                                        </span>
+                                        <ChevronDown className={`w-3.5 h-3.5 text-[#76777d] shrink-0 transition-transform ${designSectionOpen.phases ? 'rotate-180' : ''}`} />
+                                      </span>
+                                    </button>
+                                    {designSectionOpen.phases && (
+                                    <div className="px-4 py-3 border-t border-[#eceef0] space-y-2">
+                                      <p className="text-[10px] text-[#76777d] leading-relaxed">
+                                        按「工程类别 + 复杂程度表 + 复杂程度等级」自动查《表 7.2-1 建筑市政工程各阶段工作量比例表》填入。
+                                      </p>
+                                      <div className="grid grid-cols-3 gap-2">
+                                        {([
+                                          { key: 'p1', label: '方案设计' },
+                                          { key: 'p2', label: '初步设计' },
+                                          { key: 'p3', label: '施工图设计' },
+                                        ] as const).map((item) => (
+                                          <div key={item.key} className="space-y-1">
+                                            <span className="block text-[10px] text-[#76777d]">{item.label}</span>
+                                            {designManualPhase ? (
+                                              <div className="relative">
+                                                <input
+                                                  type="number"
+                                                  step="1"
+                                                  min="0"
+                                                  max="100"
+                                                  value={designPhaseOverride[item.key]}
+                                                  onChange={(e) => {
+                                                    setDesignPhaseOverride((prev) => ({ ...prev, [item.key]: e.target.value }));
+                                                    setShowDesignResult(false);
+                                                  }}
+                                                  className="w-full border border-[#c6c6cd] bg-white px-2 py-2 pr-7 text-xs rounded-xl focus:border-[#007AFF] outline-none font-mono font-semibold text-center"
+                                                />
+                                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#76777d]">%</span>
+                                              </div>
+                                            ) : (
+                                              <div className="w-full bg-[#f2f4f6] rounded-xl py-2 text-center text-xs font-mono font-semibold text-[#45464d]">
+                                                {getDesignPhase()[item.key]}%
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div className="flex items-center justify-between gap-2">
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={designManualPhase}
+                                            onChange={(e) => {
+                                              const on = e.target.checked;
+                                              if (on) {
+                                                const p = getDesignPhase();
+                                                setDesignPhaseOverride({ p1: String(p.p1), p2: String(p.p2), p3: String(p.p3) });
+                                              }
+                                              setDesignManualPhase(on);
+                                              setShowDesignResult(false);
+                                            }}
+                                            className="w-4 h-4 accent-[#007AFF] cursor-pointer"
+                                          />
+                                          <span className="text-[10px] text-[#45464d]">手工调整</span>
+                                        </label>
+                                        <span className="text-[10px] text-[#a1a1aa]">
+                                          合计 {getDesignPhase().p1 + getDesignPhase().p2 + getDesignPhase().p3}%（应为 100%）
+                                        </span>
+                                      </div>
+                                    </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* 汇总预览 */}
+                                <div className="p-4 bg-[#f7f9fb] rounded-2xl border border-[#eceef0] text-center space-y-1">
+                                  <div className="text-[10px] text-[#76777d]">综合调整系数（专业 × 复杂程度 × 修正 × 计费模式）</div>
+                                  <div className="text-xl font-black text-[#007AFF] font-mono">
+                                    {designPreviewTotalFactor().toFixed(4)}
+                                  </div>
+                                  <div className="text-[10px] text-[#a1a1aa] font-mono">
+                                    {getDesignProfessionFactor().toFixed(2)} × {getDesignComplexity().factor.toFixed(2)} ×{' '}
+                                    {mergeFactorPreview(getDesignAdditionalFactors().map((f) => f.factor)).toFixed(4)} × {getDesignModeFactor().toFixed(2)}
+                                  </div>
+                                </div>
+                              </motion.div>
+
+                              <div className="flex flex-col items-center gap-3 pt-2">
+                                {designWizardError && (
+                                  <p className="text-[11px] font-bold text-[#ba1a1a]">{designWizardError}</p>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleCalculateDesign();
+                                    if (getDesignPhase().p1 + getDesignPhase().p2 + getDesignPhase().p3 === 100) {
+                                      navigateDesignStep(4);
+                                    }
+                                  }}
+                                  className="px-10 py-4 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-95 flex items-center gap-2"
+                                >
+                                  设计费生成
+                                  <ChevronRight className="w-4 h-4 text-white" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 步骤 5：测算报告 */}
+                          {designStep === 4 && (
+                            <motion.div
+                              key="des-step-4"
+                              custom={designDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-4 w-full animate-fadeIn"
+                            >
+                              {showDesignResult && (
+                                <div className="p-6 bg-white border border-[#c6c6cd]/60 shadow-lg rounded-3xl space-y-4 border-t-4 border-t-[#007AFF] text-center">
+                                  <div className="flex justify-between items-center pb-2 border-b border-[#eceef0]">
+                                    <h3 className="text-sm font-bold text-[#0f172a] flex items-center gap-2">
+                                      <CheckCircle2 className="w-4.5 h-4.5 text-green-500" />
+                                      工程设计费测算报告
+                                    </h3>
+                                    <div className="text-xs font-black text-white bg-[#007AFF] px-4 py-2 rounded-xl font-mono shadow-sm">
+                                      {extractFeeOnly(designResultText)}
+                                    </div>
+                                  </div>
+                                  <pre className="text-xs font-mono bg-[#f7f9fb] p-4 rounded-2xl overflow-x-auto whitespace-pre-wrap leading-relaxed text-[#45464d] border border-[#eceef0] text-left">
+                                    {designResultText}
+                                  </pre>
+                                </div>
+                              )}
+                              <div className="flex justify-center gap-3 pt-2">
+                                <button
+                                  onClick={goToReportPage}
+                                  className="flex items-center gap-1.5 px-6 py-4 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-[0.98]"
+                                >
+                                  查看汇总页
+                                  <LayoutDashboard className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={resetDesignWizard}
+                                  className="flex items-center gap-1.5 px-6 py-4 bg-[#0F172A] text-white rounded-2xl text-xs font-bold hover:bg-[#1e293b] transition-all shadow-md active:scale-[0.98]"
+                                >
+                                  重新测算
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    <button 
-                      onClick={handleCalculate}
-                      className="w-full bg-[#0F172A] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-[#1e293b] active:scale-[0.98] transition-all shadow-[0_8px_30px_rgb(0,0,0,0.1)] text-base"
-                    >
-                      开始测算设计费
-                      <ArrowRight className="w-5 h-5" />
-                    </button>
+                    {/* 新增自定义省份（工程设计费）Modal */}
+                    <AnimatePresence>
+                      {showAddDesignProvinceModal && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                          <motion.div
+                            initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 30, scale: 0.95 }}
+                            className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden max-h-[85vh] flex flex-col"
+                          >
+                            <div className="p-6 border-b border-[#eceef0] flex justify-between items-center bg-gradient-to-r from-[#007AFF]/5 to-transparent">
+                              <div className="text-left">
+                                <h3 className="text-lg font-black text-[#0F172A] flex items-center gap-2">
+                                  <PlusCircle className="w-5 h-5 text-[#007AFF]" />
+                                  新增自定义省份（工程设计费）
+                                </h3>
+                                <p className="text-xs text-[#76777d] mt-1">
+                                  以计价格〔2002〕10号标准为基准，填「基价倍数 + 封顶费率」即可扩展
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => { setShowAddDesignProvinceModal(false); setDesignWizardError(''); }}
+                                className="p-2 hover:bg-[#eceef0] rounded-full text-[#76777d] transition-all"
+                              >
+                                <X className="w-5 h-5" />
+                              </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto space-y-5 flex-1 text-left">
+                              <div className="space-y-2">
+                                <label className="block text-sm font-bold text-[#0F172A]">省份名称</label>
+                                <input
+                                  type="text"
+                                  placeholder="例如：湖南省、广东省"
+                                  value={newDesignProvName}
+                                  onChange={(e) => { setNewDesignProvName(e.target.value); setDesignWizardError(''); }}
+                                  className="w-full px-4 py-3 bg-[#f2f4f6] rounded-xl outline-none text-sm font-semibold border border-transparent focus:border-[#007AFF] transition-all"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <label className="block text-sm font-bold text-[#0F172A]">基价倍数</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    value={newDesignProvMultiplier}
+                                    onChange={(e) => setNewDesignProvMultiplier(e.target.value)}
+                                    className="w-full px-4 py-3 bg-[#f2f4f6] rounded-xl outline-none text-sm font-semibold border border-transparent focus:border-[#007AFF] transition-all text-center font-mono"
+                                  />
+                                  <p className="text-[10px] text-[#a1a1aa] leading-relaxed">
+                                    相对国家标准（计价格〔2002〕10号 附表一）。已归档：湖南 1.20、广东 0.85、黑龙江 1.25
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="block text-sm font-bold text-[#0F172A]">封顶费率（%）</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    placeholder={`留空则 ${Math.round(DESIGN_NAT_CAP_RATE * (parseFloat(newDesignProvMultiplier) || 1) * 100) / 100}`}
+                                    value={newDesignProvCapRate}
+                                    onChange={(e) => setNewDesignProvCapRate(e.target.value)}
+                                    className="w-full px-4 py-3 bg-[#f2f4f6] rounded-xl outline-none text-sm font-semibold border border-transparent focus:border-[#007AFF] transition-all text-center font-mono"
+                                  />
+                                  <p className="text-[10px] text-[#a1a1aa]">计费额 ＞ 2000000 万元时适用</p>
+                                </div>
+                              </div>
+
+                              <div className="space-y-2 bg-[#f7f9fb] p-4 rounded-2xl border border-[#eceef0]">
+                                <label className="flex items-start gap-3 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={newDesignProvWithC4}
+                                    onChange={(e) => setNewDesignProvWithC4(e.target.checked)}
+                                    className="w-4 h-4 accent-[#007AFF] cursor-pointer mt-0.5"
+                                  />
+                                  <span className="text-[11px] text-[#45464d] leading-relaxed">
+                                    增加「Ⅳ级（特别复杂）」复杂程度等级（国家标准仅 Ⅰ/Ⅱ/Ⅲ 三级：0.85 / 1.00 / 1.15）
+                                  </span>
+                                </label>
+                                {newDesignProvWithC4 && (
+                                  <div className="flex items-center gap-3 pl-7">
+                                    <span className="text-[11px] text-[#76777d]">Ⅳ级调整系数</span>
+                                    <input
+                                      type="number"
+                                      step="0.05"
+                                      min="1.01"
+                                      value={newDesignProvC4Factor}
+                                      onChange={(e) => setNewDesignProvC4Factor(e.target.value)}
+                                      className="w-24 px-3 py-2 bg-white rounded-xl outline-none text-xs font-semibold border border-[#c6c6cd] focus:border-[#007AFF] text-center font-mono"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => setNewDesignProvAdvanced(!newDesignProvAdvanced)}
+                                className="flex items-center gap-2 text-xs font-bold text-[#007AFF] hover:underline"
+                              >
+                                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${newDesignProvAdvanced ? 'rotate-180' : ''}`} />
+                                高级：逐档编辑基价表
+                              </button>
+
+                              {newDesignProvAdvanced && (
+                                <div className="space-y-2 border border-[#eceef0] rounded-2xl p-4">
+                                  <p className="text-[10px] text-[#a1a1aa] leading-relaxed">
+                                    默认按「国家标准 × {parseFloat(newDesignProvMultiplier) || 1}」生成，可直接修改任一分档。
+                                  </p>
+                                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 max-h-56 overflow-y-auto pr-1">
+                                    {DESIGN_NAT_AXIS.map((a, i) => (
+                                      <div key={a} className="flex items-center gap-2">
+                                        <span className="text-[10px] text-[#76777d] w-20 text-right shrink-0">{a} 万元</span>
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          value={newDesignProvPrices[i] ?? ''}
+                                          onChange={(e) => {
+                                            const next = [...newDesignProvPrices];
+                                            next[i] = e.target.value;
+                                            setNewDesignProvPrices(next);
+                                          }}
+                                          className="flex-1 min-w-0 px-2 py-1.5 bg-[#f2f4f6] rounded-lg outline-none text-[11px] font-mono border border-transparent focus:border-[#007AFF]"
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setNewDesignProvPrices(
+                                        DESIGN_NAT_PRICES.map((v) =>
+                                          String(Math.round(v * (parseFloat(newDesignProvMultiplier) || 1) * 10000) / 10000)
+                                        )
+                                      )
+                                    }
+                                    className="text-[10px] font-bold text-[#007AFF] hover:underline"
+                                  >
+                                    按当前倍数重置
+                                  </button>
+                                </div>
+                              )}
+
+                              {customDesignProvinces.length > 0 && (
+                                <div className="space-y-2 border-t border-[#eceef0] pt-4">
+                                  <span className="block text-xs font-bold text-[#0F172A]">已保存的自定义省份</span>
+                                  {customDesignProvinces.map((p) => (
+                                    <div key={p.name} className="flex items-center justify-between gap-3 px-3 py-2 bg-[#f7f9fb] rounded-xl">
+                                      <span className="text-[11px] text-[#45464d]">
+                                        {p.name} · × {p.multiplier} · 封顶 {p.capRate}%
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => removeCustomDesignProvince(p.name)}
+                                        className="text-[10px] font-bold text-[#ba1a1a] hover:underline shrink-0"
+                                      >
+                                        删除
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {designWizardError && (
+                                <p className="text-[11px] font-bold text-[#ba1a1a]">{designWizardError}</p>
+                              )}
+                            </div>
+
+                            <div className="p-6 border-t border-[#eceef0] flex gap-3">
+                              <button
+                                onClick={() => { setShowAddDesignProvinceModal(false); setDesignWizardError(''); }}
+                                className="flex-1 py-3.5 rounded-xl bg-[#eceef0] text-[#45464d] text-xs font-black active:scale-[0.98] transition-all"
+                              >
+                                取消
+                              </button>
+                              <button
+                                onClick={handleSaveDesignProvince}
+                                className="flex-1 py-3.5 rounded-xl bg-[#007AFF] text-white text-xs font-black active:scale-[0.98] transition-all shadow-md"
+                              >
+                                保存并选定该省份
+                              </button>
+                            </div>
+                          </motion.div>
+                        </div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Padding for fixed button */}
+                    <div className="h-20 md:hidden"></div>
                   </div>
                 )}
 
-                {/* 子页面 2：工程可研费 */}
+                {/* 子页面 2：工程可研费（5 步向导，与造价咨询费 / 监理费保持一致） */}
                 {calculatorSubTab === 'feasibility' && (
-                  <div className="space-y-6 px-1 animate-fadeIn">
-                    <div className="p-5 bg-white border border-[#c6c6cd]/60 shadow-sm rounded-2xl">
-                      <label className="block text-sm font-bold mb-2 ml-1 text-[#0F172A]">估算投资额 (万元)</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-2xl font-black text-[#0F172A]">¥</span>
-                        <input
-                          type="number"
-                          placeholder="0.00"
-                          value={engineeringBudget}
-                          onChange={(e) => setEngineeringBudget(e.target.value)}
-                          className="w-full border-b border-[#c6c6cd] bg-transparent pl-10 pr-4 py-3 text-2xl font-black focus:outline-none focus:border-[#008ebf] placeholder:text-[#c6c6cd]"
-                        />
+                  <div className="space-y-10 px-4 py-8 animate-fadeIn max-w-4xl mx-auto w-full">
+                    {/* 顶部滑动指示器 */}
+                    <div className="max-w-xl mx-auto mb-8 px-1">
+                      <div className="flex justify-between text-[9px] font-bold text-[#76777d] mb-3 uppercase tracking-wider">
+                        {FEASIBILITY_STEPS.map((stepText, idx) => (
+                          <span key={idx} className={feasibilityStep === idx ? 'text-[#007AFF]' : ''}>
+                            {stepText}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="h-1.5 bg-[#eceef0] rounded-full overflow-hidden flex gap-1">
+                        {FEASIBILITY_STEPS.map((_, idx) => (
+                          <div
+                            key={idx}
+                            className={`h-full flex-1 transition-all duration-300 rounded-full ${feasibilityStep >= idx ? 'bg-[#007AFF]' : 'bg-[#c6c6cd]/30'}`}
+                          />
+                        ))}
                       </div>
                     </div>
 
-                    <div className="space-y-1 px-1">
-                      <label className="text-[12px] font-semibold text-[#45464d] ml-1">工程所属行业</label>
-                      <select 
-                        value={selectedIndustry}
-                        onChange={(e) => setSelectedIndustry(e.target.value)}
-                        className="w-full border border-[#c6c6cd] bg-white px-3 py-3 text-sm rounded-xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none"
-                      >
-                        <option>1、石化、化工、钢铁</option>
-                        <option>2、石油、天然气、水利、水电、交通（水运）、化纤</option>
-                        <option>3、有色、黄金、纺织、轻工、邮电、广播、电视、医药、煤炭、火电（含核电）、机械（含船舶、航空、航天、兵器）</option>
-                        <option>4、林业、商业、粮食、建筑</option>
-                        <option>5、建材、交通（公路）、铁道、市政公用工程</option>
-                      </select>
+                    <div className="max-w-2xl w-full mx-auto select-none">
+                      <div className="relative overflow-hidden min-h-[460px] flex flex-col justify-center">
+                        <div className="contents">
+
+                          {/* 步骤 1：测算省份 */}
+                          {feasibilityStep === 0 && (
+                            <motion.div
+                              key="fea-step-0"
+                              custom={feasibilityDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-8 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full"
+                            >
+                              <div className="flex flex-col items-center gap-3.5 mb-2">
+                                <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                  <MapPin className="w-6 h-6" />
+                                </div>
+                                <h3 className="text-xl font-bold text-[#0F172A]">测算省份</h3>
+                              </div>
+                              <p className="text-xs text-[#76777d]">各省建设项目前期工作咨询费收费标准不同，请选择对应省份以匹配相应算法。</p>
+                              <div className="relative mt-2 max-w-xs mx-auto">
+                                <select
+                                  value={feasibilityProvince}
+                                  onChange={(e) => {
+                                    setFeasibilityProvince(e.target.value);
+                                    setFeasibilityServiceKeys(['report']);
+                                    setFeasibilityOtherPreset('');
+                                    setFeasibilityOtherCustom('');
+                                    setShowFeasibilityResult(false);
+                                    setTimeout(() => navigateFeasibilityStep(1), 150);
+                                  }}
+                                  className="w-full border border-[#c6c6cd] bg-white px-4 py-4 text-sm rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.2rem_1.2rem] bg-[right_1rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none font-semibold text-[#0F172A] text-center"
+                                >
+                                  {FEASIBILITY_PROVINCES.map((p) => (
+                                    <option key={p} value={p}>{FEASIBILITY_STANDARDS[p].name}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="flex justify-center pt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => navigateFeasibilityStep(1)}
+                                  className="px-8 py-3.5 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                                >
+                                  继续
+                                  <ChevronRight className="w-4 h-4 text-white" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+
+                          {/* 步骤 2：咨询服务类型（多选） */}
+                          {feasibilityStep === 1 && (
+                            <motion.div
+                              key="fea-step-1"
+                              custom={feasibilityDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-6 w-full"
+                            >
+                              <div className="space-y-6 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full">
+                                <div className="flex flex-col items-center gap-3.5 mb-2">
+                                  <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                    <Layers className="w-6 h-6" />
+                                  </div>
+                                  <h3 className="text-xl font-bold text-[#0F172A]">咨询服务类型</h3>
+                                </div>
+                                <p className="text-xs text-[#76777d]">可多选。同时测算多项咨询服务时，报告中逐项列示并给出合计。</p>
+
+                                <div className="text-left space-y-4">
+                                  {[
+                                    { title: '一般建设项目', items: getFeasibilityServices().filter((s) => !s.affordable) },
+                                    { title: '经济适用住房项目', items: getFeasibilityServices().filter((s) => s.affordable) },
+                                  ]
+                                    .filter((group) => group.items.length > 0)
+                                    .map((group) => (
+                                      <div key={group.title} className="space-y-2">
+                                        <div className="text-[10px] font-bold text-[#76777d] tracking-wider">{group.title}</div>
+                                        {group.items.map((s) => {
+                                          const checked = feasibilityServiceKeys.includes(s.key);
+                                          return (
+                                            <label
+                                              key={s.key}
+                                              className={`flex items-start gap-3 p-4 rounded-2xl border cursor-pointer transition-all ${
+                                                checked ? 'border-[#007AFF] bg-[#007AFF]/[0.04]' : 'border-[#eceef0] hover:border-[#c6c6cd]'
+                                              }`}
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={() => toggleFeasibilityService(s.key)}
+                                                className="w-4 h-4 accent-[#007AFF] cursor-pointer mt-0.5"
+                                              />
+                                              <span className="flex-1">
+                                                <span className="block text-[12px] font-semibold text-[#0F172A]">{s.name}</span>
+                                                {s.basis && (
+                                                  <span className="block text-[10px] text-[#76777d] mt-0.5 leading-relaxed">{s.basis}</span>
+                                                )}
+                                              </span>
+                                            </label>
+                                          );
+                                        })}
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+
+                              <div className="flex justify-center pt-2">
+                                <button
+                                  type="button"
+                                  disabled={getSelectedFeasibilityServices().length === 0}
+                                  onClick={() => navigateFeasibilityStep(2)}
+                                  className={`px-8 py-3.5 rounded-2xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 ${
+                                    getSelectedFeasibilityServices().length > 0
+                                      ? 'bg-[#007AFF] text-white hover:bg-[#0052b3] active:scale-95'
+                                      : 'bg-[#eceef0] text-[#a1a1aa] cursor-not-allowed'
+                                  }`}
+                                >
+                                  继续
+                                  <ChevronRight className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+
+                          {/* 步骤 3：计费基数 */}
+                          {feasibilityStep === 2 && (
+                            <motion.div
+                              key="fea-step-2"
+                              custom={feasibilityDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-8 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full animate-fadeIn"
+                            >
+                              <div className="flex flex-col items-center gap-3.5 mb-2">
+                                <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                  <BarChart3 className="w-6 h-6" />
+                                </div>
+                                <h3 className="text-xl font-bold text-[#0F172A]">录入计费基数</h3>
+                                <p className="text-xs text-[#76777d]">（{FEASIBILITY_BILLING_BASE_LABEL}）</p>
+                                <p className="text-[10px] text-[#a1a1aa] -mt-2">{FEASIBILITY_BILLING_BASE_HINT}</p>
+                              </div>
+
+                              <div className="relative mt-2 max-w-xs mx-auto">
+                                <input
+                                  type="number"
+                                  value={feasibilityAmount}
+                                  onChange={(e) => {
+                                    setFeasibilityAmount(e.target.value);
+                                    setShowFeasibilityResult(false);
+                                  }}
+                                  placeholder={`请输入${FEASIBILITY_BILLING_BASE_LABEL}（万元）`}
+                                  className="w-full border border-[#c6c6cd] bg-white px-5 py-5 pr-12 text-base rounded-2xl focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A] font-bold text-center font-mono shadow-sm"
+                                />
+                                <span className="absolute right-5 top-1/2 -translate-y-1/2 text-sm text-[#76777d]">万元</span>
+                              </div>
+
+                              <div className="text-[10px] text-[#76777d] leading-relaxed px-2">
+                                计费档位（万元）：{getFeasibilityStandard().tierLabels.join(' ｜ ')}
+                              </div>
+
+                              {feasibilityAmount && parseFloat(feasibilityAmount) > 0 && (
+                                <motion.div
+                                  initial={{ opacity: 0, scale: 0.95 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  className="pt-2 flex justify-center"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => navigateFeasibilityStep(3)}
+                                    className="px-8 py-3.5 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-95 flex items-center gap-1.5 animate-fadeIn"
+                                  >
+                                    继续
+                                    <ChevronRight className="w-4 h-4 text-white" />
+                                  </button>
+                                </motion.div>
+                              )}
+                            </motion.div>
+                          )}
+
+                          {/* 步骤 4：调整系数 */}
+                          {feasibilityStep === 3 && (
+                            <div className="space-y-6 w-full animate-fadeIn">
+                              <motion.div
+                                key="fea-step-3"
+                                custom={feasibilityDirection}
+                                variants={wizardVariants}
+                                initial="enter"
+                                animate="center"
+                                exit="exit"
+                                className="space-y-6 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full"
+                              >
+                                <div className="flex flex-col items-center gap-3.5 mb-2">
+                                  <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                    <Award className="w-6 h-6" />
+                                  </div>
+                                  <h3 className="text-xl font-bold text-[#0F172A]">调整系数</h3>
+                                </div>
+
+                                {hasAffordableSelected() && !hasNormalSelected() ? (
+                                  <p className="text-xs text-[#76777d] leading-relaxed">
+                                    所选项目均为经济适用住房项目，按附表二固定标准计取，不适用行业调整系数与工程复杂程度调整系数。
+                                  </p>
+                                ) : (
+                                  <>
+                                    <p className="text-xs text-[#76777d]">最终费用 = 基准费用 × 行业调整系数 × 工程复杂程度调整系数 × 其他调整系数。</p>
+                                    <div className="space-y-5 text-left">
+                                      {/* 行业调整系数 */}
+                                      <div className="space-y-1.5">
+                                        <label className="text-[11px] font-bold text-[#0F172A]">行业调整系数（计价格〔1999〕1283号 附件二）</label>
+                                        <select
+                                          value={feasibilityIndustryKey}
+                                          onChange={(e) => {
+                                            setFeasibilityIndustryKey(e.target.value);
+                                            setShowFeasibilityResult(false);
+                                          }}
+                                          className="w-full border border-[#c6c6cd] bg-white px-4 py-3 text-[11px] rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.1rem_1.1rem] bg-[right_0.9rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A] leading-relaxed"
+                                        >
+                                          {INDUSTRY_FACTORS.map((i) => (
+                                            <option key={i.key} value={i.key}>{i.label}（{i.factor}）</option>
+                                          ))}
+                                          <option value={CATEGORY_CUSTOM_VALUE}>自定义系数（手动输入）</option>
+                                        </select>
+                                        {feasibilityIndustryKey === CATEGORY_CUSTOM_VALUE && (
+                                          <div className="relative max-w-xs">
+                                            <input
+                                              type="number"
+                                              step="0.01"
+                                              min="0.01"
+                                              value={feasibilityIndustryCustom}
+                                              onChange={(e) => {
+                                                setFeasibilityIndustryCustom(e.target.value);
+                                                setShowFeasibilityResult(false);
+                                              }}
+                                              placeholder="请输入自定义系数，如 1.10"
+                                              className="w-full border border-[#c6c6cd] bg-white px-4 py-3 pr-14 text-sm rounded-2xl focus:border-[#007AFF] focus:ring-1 focus:ring-[#007AFF] outline-none font-mono font-semibold text-center"
+                                            />
+                                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[#76777d]">系数</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* 工程复杂程度调整系数 */}
+                                      <div className="space-y-1.5">
+                                        <label className="text-[11px] font-bold text-[#0F172A]">工程复杂程度调整系数（{COMPLEXITY_MIN} – {COMPLEXITY_MAX}）</label>
+                                        <div className="relative max-w-xs">
+                                          <input
+                                            type="number"
+                                            step="0.05"
+                                            min={COMPLEXITY_MIN}
+                                            max={COMPLEXITY_MAX}
+                                            value={feasibilityComplexity}
+                                            onChange={(e) => {
+                                              setFeasibilityComplexity(e.target.value);
+                                              setShowFeasibilityResult(false);
+                                            }}
+                                            placeholder="1.00"
+                                            className="w-full border border-[#c6c6cd] bg-white px-4 py-3 pr-14 text-sm rounded-2xl focus:border-[#007AFF] focus:ring-1 focus:ring-[#007AFF] outline-none font-mono font-semibold text-center"
+                                          />
+                                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[#76777d]">系数</span>
+                                        </div>
+                                        <p className="text-[10px] text-[#a1a1aa]">由工程咨询机构与委托单位根据各类工程情况协商确定，超出范围将按边界值计取。</p>
+                                      </div>
+
+                                      {/* 其他调整系数 */}
+                                      <div className="space-y-1.5">
+                                        <label className="text-[11px] font-bold text-[#0F172A]">其他调整系数</label>
+                                        <select
+                                          value={feasibilityOtherPreset}
+                                          onChange={(e) => {
+                                            setFeasibilityOtherPreset(e.target.value);
+                                            setShowFeasibilityResult(false);
+                                          }}
+                                          className="w-full border border-[#c6c6cd] bg-white px-4 py-3 text-[11px] rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.1rem_1.1rem] bg-[right_0.9rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A] leading-relaxed"
+                                        >
+                                          <option value="">不使用（× 1.00）</option>
+                                          {getFeasibilityStandard().otherFactorPresets.map((p) => (
+                                            <option key={p.key} value={p.key}>{p.label}（× {p.factor}）</option>
+                                          ))}
+                                          <option value={CATEGORY_CUSTOM_VALUE}>自定义系数（手动输入）</option>
+                                        </select>
+                                        {feasibilityOtherPreset === CATEGORY_CUSTOM_VALUE && (
+                                          <div className="relative max-w-xs">
+                                            <input
+                                              type="number"
+                                              step="0.01"
+                                              min="0.01"
+                                              value={feasibilityOtherCustom}
+                                              onChange={(e) => {
+                                                setFeasibilityOtherCustom(e.target.value);
+                                                setShowFeasibilityResult(false);
+                                              }}
+                                              placeholder="请输入自定义系数，如 1.20"
+                                              className="w-full border border-[#c6c6cd] bg-white px-4 py-3 pr-14 text-sm rounded-2xl focus:border-[#007AFF] focus:ring-1 focus:ring-[#007AFF] outline-none font-mono font-semibold text-center"
+                                            />
+                                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[#76777d]">系数</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* 综合调整系数 */}
+                                      <div className="p-4 bg-[#f7f9fb] rounded-2xl border border-[#eceef0] text-center">
+                                        <div className="text-[10px] text-[#76777d] mb-1">综合调整系数</div>
+                                        <div className="text-xl font-black text-[#007AFF] font-mono">{getFeasibilityTotalFactor().toFixed(4)}</div>
+                                        <div className="text-[10px] text-[#a1a1aa] mt-1 font-mono">
+                                          {getFeasibilityIndustryFactor().toFixed(2)} × {getFeasibilityComplexityFactor().toFixed(2)} × {getFeasibilityOtherFactor().toFixed(4)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </motion.div>
+
+                              <div className="flex justify-center pt-2">
+                                <button
+                                  type="button"
+                                  disabled={getSelectedFeasibilityServices().length === 0}
+                                  onClick={() => {
+                                    handleCalculateFeasibility();
+                                    navigateFeasibilityStep(4);
+                                  }}
+                                  className={`px-10 py-4 rounded-2xl text-xs font-bold transition-all shadow-md flex items-center gap-2 ${
+                                    getSelectedFeasibilityServices().length > 0
+                                      ? 'bg-[#007AFF] text-white hover:bg-[#0052b3] active:scale-95'
+                                      : 'bg-[#eceef0] text-[#a1a1aa] cursor-not-allowed'
+                                  }`}
+                                >
+                                  可研费生成
+                                  <ChevronRight className="w-4 h-4 text-white" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 步骤 5：测算报告 */}
+                          {feasibilityStep === 4 && (
+                            <motion.div
+                              key="fea-step-4"
+                              custom={feasibilityDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-4 w-full animate-fadeIn"
+                            >
+                              {showFeasibilityResult && (
+                                <div className="p-6 bg-white border border-[#c6c6cd]/60 shadow-lg rounded-3xl space-y-4 border-t-4 border-t-[#007AFF] text-center">
+                                  <div className="flex justify-between items-center pb-2 border-b border-[#eceef0]">
+                                    <h3 className="text-sm font-bold text-[#0f172a] flex items-center gap-2">
+                                      <CheckCircle2 className="w-4.5 h-4.5 text-green-500" />
+                                      前期工作咨询费测算报告
+                                    </h3>
+                                    <div className="text-xs font-black text-white bg-[#007AFF] px-4 py-2 rounded-xl font-mono shadow-sm">
+                                      {extractFeeOnly(feasibilityResultText)}
+                                    </div>
+                                  </div>
+                                  <pre className="text-xs font-mono bg-[#f7f9fb] p-4 rounded-2xl overflow-x-auto whitespace-pre-wrap leading-relaxed text-[#45464d] border border-[#eceef0] text-left">
+                                    {feasibilityResultText}
+                                  </pre>
+                                </div>
+                              )}
+                              <div className="flex justify-center pt-2">
+                                <button
+                                  onClick={resetFeasibilityWizard}
+                                  className="flex items-center gap-1.5 px-8 py-4 bg-[#0F172A] text-white rounded-2xl text-xs font-bold hover:bg-[#1e293b] transition-all shadow-md active:scale-[0.98]"
+                                >
+                                  重新测算
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
-                    <button 
-                      onClick={handleCalculate}
-                      className="w-full bg-[#0F172A] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-[#1e293b] active:scale-[0.98] transition-all shadow-[0_8px_30px_rgb(0,0,0,0.1)] text-base"
-                    >
-                      开始测算可研费
-                      <ArrowRight className="w-5 h-5" />
-                    </button>
+                    {/* Padding for fixed button */}
+                    <div className="h-20 md:hidden"></div>
                   </div>
                 )}
 
-                {/* 子页面 3：工程监理费 */}
+                {/* 子页面 3：工程监理费（5 步向导，与造价咨询费保持一致） */}
                 {calculatorSubTab === 'supervision' && (
-                  <div className="space-y-6 px-1 animate-fadeIn">
-                    <div className="p-5 bg-white border border-[#c6c6cd]/60 shadow-sm rounded-2xl">
-                      <label className="block text-sm font-bold mb-2 ml-1 text-[#0F172A]">计费额 (万元)</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-2xl font-black text-[#0F172A]">¥</span>
-                        <input
-                          type="number"
-                          placeholder="0.00"
-                          value={engineeringBudget}
-                          onChange={(e) => setEngineeringBudget(e.target.value)}
-                          className="w-full border-b border-[#c6c6cd] bg-transparent pl-10 pr-4 py-3 text-2xl font-black focus:outline-none focus:border-[#008ebf] placeholder:text-[#c6c6cd]"
-                        />
+                  <div className="space-y-10 px-4 py-8 animate-fadeIn max-w-4xl mx-auto w-full">
+                    {/* 顶部滑动指示器 */}
+                    <div className="max-w-xl mx-auto mb-8 px-1">
+                      <div className="flex justify-between text-[9px] font-bold text-[#76777d] mb-3 uppercase tracking-wider">
+                        {SUPERVISION_STEPS.map((stepText, idx) => (
+                          <span key={idx} className={supervisionStep === idx ? 'text-[#007AFF]' : ''}>
+                            {stepText}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="h-1.5 bg-[#eceef0] rounded-full overflow-hidden flex gap-1">
+                        {SUPERVISION_STEPS.map((_, idx) => (
+                          <div
+                            key={idx}
+                            className={`h-full flex-1 transition-all duration-300 rounded-full ${supervisionStep >= idx ? 'bg-[#007AFF]' : 'bg-[#c6c6cd]/30'}`}
+                          />
+                        ))}
                       </div>
                     </div>
 
-                    <button 
-                      onClick={handleCalculate}
-                      className="w-full bg-[#0F172A] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-[#1e293b] active:scale-[0.98] transition-all shadow-[0_8px_30px_rgb(0,0,0,0.1)] text-base"
-                    >
-                      开始测算监理费
-                      <ArrowRight className="w-5 h-5" />
-                    </button>
+                    <div className="max-w-2xl w-full mx-auto select-none">
+                      <div className="relative overflow-hidden min-h-[460px] flex flex-col justify-center">
+                        <div className="contents">
+
+                          {/* 步骤 1：测算省份 */}
+                          {supervisionStep === 0 && (
+                            <motion.div
+                              key="sup-step-0"
+                              custom={supervisionDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-8 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full"
+                            >
+                              <div className="flex flex-col items-center gap-3.5 mb-2">
+                                <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                  <MapPin className="w-6 h-6" />
+                                </div>
+                                <h3 className="text-xl font-bold text-[#0F172A]">测算省份</h3>
+                              </div>
+                              <p className="text-xs text-[#76777d]">各省监理服务费计费规则与费率基准不同，请选择对应省份以匹配相应算法。</p>
+                              <div className="relative mt-2 max-w-xs mx-auto">
+                                <select
+                                  value={supervisionProvince}
+                                  onChange={(e) => {
+                                    setSupervisionProvince(e.target.value);
+                                    setSupervisionServiceType('');
+                                    setSupervisionCategoryIndex(null);
+                                    setSupervisionOptions({});
+                                    setShowSupervisionResult(false);
+                                    setTimeout(() => navigateSupervisionStep(1), 150);
+                                  }}
+                                  className="w-full border border-[#c6c6cd] bg-white px-4 py-4 text-sm rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%20%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.2rem_1.2rem] bg-[right_1rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none font-semibold text-[#0F172A] text-center"
+                                >
+                                  {SUPERVISION_PROVINCES.map((p) => (
+                                    <option key={p} value={p}>{SUPERVISION_STANDARDS[p].name}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="flex justify-center pt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => navigateSupervisionStep(1)}
+                                  className="px-8 py-3.5 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                                >
+                                  继续
+                                  <ChevronRight className="w-4 h-4 text-white" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+
+                          {/* 步骤 2：监理服务类型（含附加选项） */}
+                          {supervisionStep === 1 && (
+                            <motion.div
+                              key="sup-step-1"
+                              custom={supervisionDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-6 w-full"
+                            >
+                              <div className="space-y-8 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full">
+                                <div className="flex flex-col items-center gap-3.5 mb-2">
+                                  <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                    <Layers className="w-6 h-6" />
+                                  </div>
+                                  <h3 className="text-xl font-bold text-[#0F172A]">监理服务类型</h3>
+                                </div>
+                                <p className="text-xs text-[#76777d]">请选择工程类别对应的服务类型，以匹配相应的工程难度调整系数表。</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {getSupervisionStandard().serviceTypes.map((t) => (
+                                    <div
+                                      key={t}
+                                      onClick={() => {
+                                        setSupervisionServiceType(t);
+                                        setSupervisionCategoryIndex(null);
+                                        setShowSupervisionResult(false);
+                                      }}
+                                      className={`p-5 rounded-[24px] border-2 cursor-pointer transition-all hover:scale-[1.01] flex flex-col justify-between h-28 bg-white text-center items-center ${
+                                        supervisionServiceType === t
+                                          ? 'border-[#007AFF] shadow-md ring-4 ring-[#007AFF]/10'
+                                          : 'border-[#eceef0] hover:border-[#c6c6cd]'
+                                      }`}
+                                    >
+                                      <h4 className="text-sm font-bold text-[#0F172A] mt-1">{t}</h4>
+                                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                        supervisionServiceType === t ? 'bg-[#007AFF] border-[#007AFF]' : 'border-[#c6c6cd]'
+                                      }`}>
+                                        {supervisionServiceType === t && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* 附加选项 */}
+                              {supervisionServiceType && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="p-6 bg-white shadow-lg rounded-[28px] space-y-4 max-w-lg mx-auto w-full text-left"
+                                >
+                                  <h4 className="text-xs font-bold text-[#0F172A] text-center">附加选项（可多选）</h4>
+
+                                  {getSupervisionStandard().options.length > 0 && (
+                                    <div className="space-y-2.5">
+                                      {getSupervisionStandard().options.map((opt) => {
+                                        const checked = !!supervisionOptions[opt.key];
+                                        return (
+                                          <label key={opt.key} className="flex items-center gap-3 cursor-pointer">
+                                            <input
+                                              type={opt.group ? 'radio' : 'checkbox'}
+                                              name={opt.group ? `sup-opt-${opt.group}` : undefined}
+                                              checked={checked}
+                                              onChange={() => {
+                                                setSupervisionOptions(prev => {
+                                                  const next = { ...prev };
+                                                  if (opt.group) {
+                                                    // 同组互斥
+                                                    Object.keys(next).forEach(k => {
+                                                      const o = getSupervisionStandard().options.find(x => x.key === k);
+                                                      if (o?.group === opt.group) delete next[k];
+                                                    });
+                                                    next[opt.key] = true;
+                                                  } else {
+                                                    next[opt.key] = !prev[opt.key];
+                                                  }
+                                                  return next;
+                                                });
+                                                setShowSupervisionResult(false);
+                                              }}
+                                              className="w-4 h-4 accent-[#007AFF] cursor-pointer"
+                                            />
+                                            <span className="text-[11px] text-[#45464d]">{opt.label}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {/* 单独委托工作量占比 */}
+                                  <div className="pt-4 border-t border-[#eceef0]/60 space-y-3">
+                                    <label className="block text-[11px] font-bold text-[#0F172A]">委托工作量占比（%，留空或 100 表示全部委托）</label>
+                                    <div className="relative max-w-xs">
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        max="100"
+                                        value={supervisionDelegateRatio}
+                                        onChange={(e) => {
+                                          setSupervisionDelegateRatio(e.target.value);
+                                          setShowSupervisionResult(false);
+                                        }}
+                                        placeholder="如：100"
+                                        className="w-full border border-[#c6c6cd] bg-white px-4 py-3 pl-4 pr-10 text-sm rounded-2xl focus:border-[#007AFF] focus:ring-1 focus:ring-[#007AFF] outline-none font-mono font-semibold text-center"
+                                      />
+                                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[#76777d]">%</span>
+                                    </div>
+                                    <label className="flex items-start gap-3 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={supervisionWithSafety}
+                                        onChange={(e) => {
+                                          setSupervisionWithSafety(e.target.checked);
+                                          setShowSupervisionResult(false);
+                                        }}
+                                        className="w-4 h-4 accent-[#007AFF] cursor-pointer mt-0.5"
+                                      />
+                                      <span className="text-[11px] text-[#45464d] leading-relaxed">
+                                        单独委托工程质量控制和安全生产管理（费用不宜低于施工阶段监理服务总费用的 80%）
+                                      </span>
+                                    </label>
+                                  </div>
+                                </motion.div>
+                              )}
+
+                              <div className="flex justify-center pt-2">
+                                <button
+                                  type="button"
+                                  disabled={!supervisionServiceType}
+                                  onClick={() => navigateSupervisionStep(2)}
+                                  className={`px-8 py-3.5 rounded-2xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 ${
+                                    supervisionServiceType
+                                      ? 'bg-[#007AFF] text-white hover:bg-[#0052b3] active:scale-95'
+                                      : 'bg-[#eceef0] text-[#a1a1aa] cursor-not-allowed'
+                                  }`}
+                                >
+                                  继续
+                                  <ChevronRight className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+
+                          {/* 步骤 3：计费额 */}
+                          {supervisionStep === 2 && (
+                            <motion.div
+                              key="sup-step-2"
+                              custom={supervisionDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-8 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full animate-fadeIn"
+                            >
+                              <div className="flex flex-col items-center gap-3.5 mb-2">
+                                <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                  <Layers className="w-6 h-6" />
+                                </div>
+                                <h3 className="text-xl font-bold text-[#0F172A]">录入计费额</h3>
+                                <p className="text-xs text-[#76777d]">（{SUPERVISION_BILLING_BASE_LABEL}）</p>
+                              </div>
+
+                              <div className="relative mt-2 max-w-xs mx-auto">
+                                <input
+                                  type="number"
+                                  value={supervisionAmount}
+                                  onChange={(e) => {
+                                    setSupervisionAmount(e.target.value);
+                                    setSupervisionCategoryIndex(null);
+                                    setShowSupervisionResult(false);
+                                  }}
+                                  placeholder={`请输入${SUPERVISION_BILLING_BASE_LABEL}（万元）`}
+                                  className="w-full border border-[#c6c6cd] bg-white px-5 py-5 pr-12 text-base rounded-2xl focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A] font-bold text-center font-mono shadow-sm"
+                                />
+                                <span className="absolute right-5 top-1/2 -translate-y-1/2 text-sm text-[#76777d]">万元</span>
+                              </div>
+
+                              {supervisionAmount && parseFloat(supervisionAmount) > 0 && (
+                                <motion.div
+                                  initial={{ opacity: 0, scale: 0.95 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  className="pt-2 flex justify-center"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => navigateSupervisionStep(3)}
+                                    className="px-8 py-3.5 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-95 flex items-center gap-1.5 animate-fadeIn"
+                                  >
+                                    继续
+                                    <ChevronRight className="w-4 h-4 text-white" />
+                                  </button>
+                                </motion.div>
+                              )}
+                            </motion.div>
+                          )}
+
+                          {/* 步骤 4：工程类别（难度调整系数） */}
+                          {supervisionStep === 3 && (
+                            <div className="space-y-6 w-full animate-fadeIn">
+                              <motion.div
+                                key="sup-step-3"
+                                custom={supervisionDirection}
+                                variants={wizardVariants}
+                                initial="enter"
+                                animate="center"
+                                exit="exit"
+                                className="space-y-8 p-10 md:p-12 bg-white shadow-lg rounded-[32px] text-center max-w-lg mx-auto w-full"
+                              >
+                                <div className="flex flex-col items-center gap-3.5 mb-2">
+                                  <div className="bg-[#007AFF]/10 p-3.5 rounded-2xl text-[#007AFF]">
+                                    <Award className="w-6 h-6" />
+                                  </div>
+                                  <h3 className="text-xl font-bold text-[#0F172A]">选择工程类别</h3>
+                                </div>
+                                <p className="text-xs text-[#76777d]">请选择工程特征以匹配工程难度调整系数，也可直接使用固定系数或输入自定义系数。</p>
+                                <div className="relative mt-2 max-w-xs mx-auto">
+                                  <select
+                                    value={getSupervisionSelectValue()}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      if (raw === '') setSupervisionCategoryIndex(null);
+                                      else if (raw === CATEGORY_FIXED_VALUE) setSupervisionCategoryIndex(-2);
+                                      else if (raw === CATEGORY_CUSTOM_VALUE) setSupervisionCategoryIndex(-1);
+                                      else setSupervisionCategoryIndex(Number(raw));
+                                      setShowSupervisionResult(false);
+                                    }}
+                                    className="w-full border border-[#c6c6cd] bg-white px-4 py-4 text-sm rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%20%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.2rem_1.2rem] bg-[right_1rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A] font-semibold text-center"
+                                  >
+                                    <option value="">-- 请选择工程类别 --</option>
+                                    {getSupervisionCategories().map((cat, idx) => (
+                                      <option key={idx} value={idx}>
+                                        {idx + 1}. {cat.name}（难度系数: {cat.factor}）
+                                      </option>
+                                    ))}
+                                    {getSupervisionCategories().length === 0 && (
+                                      <option value={CATEGORY_FIXED_VALUE}>固定系数 1.0</option>
+                                    )}
+                                    <option value={CATEGORY_CUSTOM_VALUE}>自定义系数（手动输入）</option>
+                                  </select>
+                                </div>
+
+                                {supervisionCategoryIndex === -1 && (
+                                  <div className="relative mt-2 max-w-xs mx-auto">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0.01"
+                                      value={supervisionCustomFactor}
+                                      onChange={(e) => {
+                                        setSupervisionCustomFactor(e.target.value);
+                                        setShowSupervisionResult(false);
+                                      }}
+                                      placeholder="请输入自定义系数，如 1.25"
+                                      className="w-full border border-[#c6c6cd] bg-white px-5 py-4 pl-4 pr-14 text-sm rounded-2xl focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A] font-bold text-center font-mono shadow-sm"
+                                    />
+                                    <span className="absolute right-5 top-1/2 -translate-y-1/2 text-xs text-[#76777d]">系数</span>
+                                  </div>
+                                )}
+                              </motion.div>
+
+                              {getSelectedSupervisionCategory() !== null && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="pt-6 flex justify-center w-full"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleCalculateSupervision();
+                                      navigateSupervisionStep(4);
+                                    }}
+                                    className="px-10 py-4 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-95 flex items-center gap-2 animate-fadeIn"
+                                  >
+                                    监理费生成
+                                    <ChevronRight className="w-4 h-4 text-white" />
+                                  </button>
+                                </motion.div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* 步骤 5：测算报告 */}
+                          {supervisionStep === 4 && (
+                            <motion.div
+                              key="sup-step-4"
+                              custom={supervisionDirection}
+                              variants={wizardVariants}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              className="space-y-4 w-full animate-fadeIn"
+                            >
+                              {showSupervisionResult && (
+                                <div className="p-6 bg-white border border-[#c6c6cd]/60 shadow-lg rounded-3xl space-y-4 border-t-4 border-t-[#007AFF] text-center">
+                                  <div className="flex justify-between items-center pb-2 border-b border-[#eceef0]">
+                                    <h3 className="text-sm font-bold text-[#0f172a] flex items-center gap-2">
+                                      <CheckCircle2 className="w-4.5 h-4.5 text-green-500" />
+                                      监理服务费测算报告
+                                    </h3>
+                                    <div className="text-xs font-black text-white bg-[#007AFF] px-4 py-2 rounded-xl font-mono shadow-sm">
+                                      {extractFeeOnly(supervisionResultText)}
+                                    </div>
+                                  </div>
+                                  <pre className="text-xs font-mono bg-[#f7f9fb] p-4 rounded-2xl overflow-x-auto whitespace-pre-wrap leading-relaxed text-[#45464d] border border-[#eceef0] text-left">
+                                    {supervisionResultText}
+                                  </pre>
+                                </div>
+                              )}
+                              <div className="flex justify-center pt-2">
+                                <button
+                                  onClick={resetSupervisionWizard}
+                                  className="flex items-center gap-1.5 px-8 py-4 bg-[#0F172A] text-white rounded-2xl text-xs font-bold hover:bg-[#1e293b] transition-all shadow-md active:scale-[0.98]"
+                                >
+                                  重新测算
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Padding for fixed button */}
+                    <div className="h-20 md:hidden"></div>
                   </div>
                 )}
 
@@ -2391,13 +4593,13 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                   <p className="text-[10px] uppercase tracking-wider text-[#45464d] mb-2 font-bold">项目概算总计 (预估总额)</p>
                   <div className="flex items-baseline gap-1">
                     <span className="text-2xl font-black text-[#008ebf]">
-                      {(calcResults?.budget || 883.27).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {(calcResults?.budget || parseFloat(designAmount) || 883.27).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                     <span className="text-xs font-semibold text-[#45464d]">万元</span>
                   </div>
                 </div>
 
-                {(calcResults?.activeSubTab === 'design' || !calcResults?.activeSubTab) && (
+                {(showDesignResult || !calcResults?.activeSubTab) && (
                   <div className="md:col-span-8 bg-white border border-[#c6c6cd]/60 rounded-lg overflow-hidden shadow-sm">
                     <div className="bg-[#f2f4f6] px-4 py-2 border-b border-[#c6c6cd]/60 flex justify-between items-center">
                       <h3 className="text-xs font-bold flex items-center gap-2">
@@ -2405,36 +4607,38 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                          工程设计费 (总价)
                       </h3>
                       <span className="text-sm font-mono font-bold text-[#008ebf]">
-                        {(calcResults?.design.total || 804.10).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} 万元
+                        {getDesignFeeWanyuan() !== null
+                          ? `${getDesignFeeWanyuan()!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} 万元`
+                          : '--'}
                       </span>
                     </div>
                     <div className="p-3">
-                      <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="flex flex-col border-r border-[#eceef0] last:border-0 pr-1">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">方案设计({phases.p1}%)</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {(calcResults?.design.p1 || 120.62).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                          </span>
+                      {getDesignFeeWanyuan() !== null ? (
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          {getDesignPhaseAmounts().map((p) => (
+                            <div key={p.name} className="flex flex-col border-r border-[#eceef0] last:border-0 pr-1">
+                              <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">{p.name}({p.percent}%)</span>
+                              <span className="text-sm font-bold text-nowrap">
+                                {p.wan.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
+                              </span>
+                            </div>
+                          ))}
                         </div>
-                        <div className="flex flex-col border-r border-[#eceef0] last:border-0 pr-1">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">初步设计({phases.p2}%)</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {(calcResults?.design.p2 || 241.23).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                          </span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">施工图({phases.p3}%)</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {(calcResults?.design.p3 || 442.26).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                          </span>
-                        </div>
-                      </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('calculator'); setCalculatorSubTab('design'); }}
+                          className="w-full text-[11px] font-bold text-[#007AFF] py-3 hover:opacity-70 transition-opacity"
+                        >
+                          尚未测算，点击前往「工程设计费」向导 →
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
 
                 {/* Additional Fee Sections */}
-                {(calcResults?.activeSubTab === 'feasibility' || !calcResults?.activeSubTab) && (
+                {(showFeasibilityResult || !calcResults?.activeSubTab) && (
                   <div key="ke-yan" className="md:col-span-12 bg-white border border-[#c6c6cd]/60 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
                     <div className="bg-[#f2f4f6] px-4 py-2 border-b border-[#c6c6cd]/60 flex justify-between items-center">
                       <h3 className="text-xs font-bold flex items-center gap-2">
@@ -2442,36 +4646,38 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                          工程可研费用
                       </h3>
                       <span className="text-sm font-mono font-bold text-[#008ebf]">
-                        {(calcResults?.feasibility.total || 28.50).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} 万元
+                        {getFeasibilityFeeWanyuan() !== null
+                          ? `${getFeasibilityFeeWanyuan()!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} 万元`
+                          : '--'}
                       </span>
                     </div>
                     <div className="p-3">
-                      <div className="grid grid-cols-4 gap-2 text-center">
-                        <div className="flex flex-col border-r border-[#eceef0] pr-1">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">编制项目建议书</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {(calcResults?.feasibility.details['编制项目建议书'] || 9.50).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                          </span>
+                      {getFeasibilityFeeWanyuan() !== null ? (
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="flex flex-col border-r border-[#eceef0] pr-1">
+                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">测算省份</span>
+                            <span className="text-sm font-bold text-nowrap truncate">{getFeasibilityStandard().name}</span>
+                          </div>
+                          <div className="flex flex-col border-r border-[#eceef0] pr-1">
+                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">{FEASIBILITY_BILLING_BASE_LABEL}（万元）</span>
+                            <span className="text-sm font-bold text-nowrap truncate font-mono">{parseFloat(feasibilityAmount) || 0}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">咨询服务类型</span>
+                            <span className="text-[10px] font-bold leading-tight">
+                              {getSelectedFeasibilityServices().map((s) => s.name).join('、')}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex flex-col border-r border-[#eceef0] pr-1">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">编制可行性研究报告</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {(calcResults?.feasibility.details['编制可行性研究报告'] || 12.00).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                          </span>
-                        </div>
-                        <div className="flex flex-col border-r border-[#eceef0] pr-1">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">评估项目建议书</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {(calcResults?.feasibility.details['评估项目建议书'] || 7.00).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                          </span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">评估可行性研究报告</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {calcResults?.feasibility.details['评估可行性研究报告'] ? calcResults.feasibility.details['评估可行性研究报告'].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 }) : '--'}
-                          </span>
-                        </div>
-                      </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('calculator'); setCalculatorSubTab('feasibility'); }}
+                          className="w-full text-[11px] font-bold text-[#007AFF] py-3 hover:opacity-70 transition-opacity"
+                        >
+                          尚未测算，点击前往「工程可研费」向导 →
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2484,58 +4690,66 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                          工程监理费
                       </h3>
                       <span className="text-sm font-mono font-bold text-[#008ebf]">
-                        {(calcResults?.supervision.total || 32.40).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} 万元
+                        {getSupervisionFeeWanyuan() !== null
+                          ? `${getSupervisionFeeWanyuan()!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} 万元`
+                          : '-- 万元'}
                       </span>
                     </div>
                     <div className="p-3">
-                      <div className="grid grid-cols-2 gap-2 text-center">
-                        <div className="flex flex-col border-r border-[#eceef0] pr-1">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">施工期监理</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {(calcResults?.supervision.total || 25.92).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                          </span>
+                      {showSupervisionResult ? (
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="flex flex-col border-r border-[#eceef0] pr-1">
+                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">测算省份</span>
+                            <span className="text-sm font-bold text-nowrap truncate">{getSupervisionStandard().name}</span>
+                          </div>
+                          <div className="flex flex-col border-r border-[#eceef0] pr-1">
+                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">监理服务类型</span>
+                            <span className="text-sm font-bold text-nowrap truncate">{supervisionServiceType || '--'}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">工程难度调整系数</span>
+                            <span className="text-sm font-bold text-nowrap">
+                              {getSelectedSupervisionCategory()?.factor.toFixed(2) ?? '--'}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">额外咨询服务</span>
-                          <span className="text-sm font-bold text-nowrap">--</span>
-                        </div>
-                      </div>
+                      ) : (
+                        <button
+                          onClick={() => { setActiveTab('calculator'); setCalculatorSubTab('supervision'); }}
+                          className="w-full text-[11px] font-bold text-[#008ebf] py-1"
+                        >
+                          尚未测算，点击前往「工程监理费」向导 →
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
 
-                {(calcResults?.activeSubTab === 'consulting' || !calcResults?.activeSubTab) && (
+                {(showConsultingResult || !calcResults?.activeSubTab) && (
                   <div key="zhao-jia" className="md:col-span-12 bg-white border border-[#c6c6cd]/60 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
                     <div className="bg-[#f2f4f6] px-4 py-2 border-b border-[#c6c6cd]/60 flex justify-between items-center">
                       <h3 className="text-xs font-bold flex items-center gap-2">
                          <Settings2 className="w-4 h-4 text-[#008ebf]" />
-                         造价咨询费 (旧版对照)
+                         造价咨询费
                       </h3>
                       <span className="text-sm font-mono font-bold text-[#008ebf]">
-                        {(calcResults?.consulting.total || 18.27).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} 万元
+                        {showConsultingResult && consultingResultText ? (extractFeeOnly(consultingResultText) || '--') : '--'}
                       </span>
                     </div>
                     <div className="p-3">
-                      <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="flex flex-col border-r border-[#eceef0] pr-1">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">清单编制费</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {(calcResults?.consulting.details['清单编制费'] || 6.10).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                          </span>
-                        </div>
-                        <div className="flex flex-col border-r border-[#eceef0] pr-1">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">过程咨询费</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {(calcResults?.consulting.details['全过程造价咨询费'] || calcResults?.consulting.details['过程咨询费'] || 8.17).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                          </span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">结算审核费</span>
-                          <span className="text-sm font-bold text-nowrap">
-                            {(calcResults?.consulting.details['结算审核费 (含一审/终审)'] || calcResults?.consulting.details['结算审核费'] || 4.00).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                          </span>
-                        </div>
-                      </div>
+                      {showConsultingResult && consultingResultText ? (
+                        <pre className="text-[10px] font-mono bg-[#f7f9fb] p-3 rounded-xl overflow-x-auto whitespace-pre-wrap leading-relaxed text-[#45464d] border border-[#eceef0] text-left max-h-64">
+                          {consultingResultText}
+                        </pre>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('calculator'); setCalculatorSubTab('consulting'); }}
+                          className="w-full text-[11px] font-bold text-[#007AFF] py-3 hover:opacity-70 transition-opacity"
+                        >
+                          尚未测算，点击前往「造价咨询费」向导 →
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -3074,6 +5288,8 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                     )}
                   </AnimatePresence>
 
+                  {/* 新增自定义省份（工程设计费）Modal 已移至「工程设计费」向导（步骤 1） */}
+
                   {/* Save Preset Dialog */}
                   <AnimatePresence>
                     {showSavePresetModal && (
@@ -3232,12 +5448,18 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                       defaultVal={designStandard} 
                       customContent={(currentSelected: string) => {
                         const designItems = [
-                          { 
-                            name: '工程设计收费基价', 
-                            rates: ['9.0', '20.9', '38.8', '103.8', '163.7', '249.6', '304.8', '566.8', '1054.0', '1515.5', '1960.1', '2393.4', '4450.8', '8276.7', '11897.5', '15391.4', '18793.8', '34948.9'], 
-                            axis: ['0.02', '0.05', '0.1', '0.3', '0.5', '0.8', '1.0', '2.0', '4.0', '6.0', '8.0', '10', '20', '40', '60', '80', '100', '200'], 
-                            labels: ['收费基价 (万元)', '计费额 (亿元)'] 
-                          }
+                          {
+                            name: '全国（计价格〔2002〕10号） · 工程设计收费基价（万元）',
+                            rates: DESIGN_NAT_PRICES.map((v) => String(v)),
+                            axis: DESIGN_NAT_AXIS.map((v) => String(v)),
+                            labels: ['收费基价 (万元)', '计费额 (万元)'],
+                          },
+                          ...customDesignProvinces.map((p) => ({
+                            name: `${p.name}（自定义 × ${p.multiplier}，封顶 ${p.capRate}%）· 工程设计收费基价（万元）`,
+                            rates: (p.prices && p.prices.length ? p.prices : DESIGN_NAT_PRICES.map((v) => Math.round(v * p.multiplier * 10000) / 10000)).map((v) => String(v)),
+                            axis: DESIGN_NAT_AXIS.map((v) => String(v)),
+                            labels: ['收费基价 (万元)', '计费额 (万元)'],
+                          })),
                         ];
                         return (
                           <div className="pt-2 px-1">
@@ -3334,7 +5556,16 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                       onToggle={() => setExpandedPref(expandedPref === 'ke-yan' ? null : 'ke-yan')}
                       onSelect={(opt: string) => setFeasibilityStd(opt)}
                       defaultVal={feasibilityStd} 
-                      items={FEASIBILITY_FEE_CONFIG}
+                      items={FEASIBILITY_PROVINCES.map((p) => {
+                        const std = FEASIBILITY_STANDARDS[p];
+                        const item = std.services.find((s) => s.key === 'report');
+                        return {
+                          name: `${std.name} · 编制可行性研究报告（万元）`,
+                          rates: (item?.brackets || []).map((b) => `${b.lo}-${b.hi}`),
+                          axis: std.tierLabels,
+                          labels: ['收费额 (万元)', '估算投资额 (万元)'],
+                        };
+                      })}
                     />
 
                     <FeeSection 
@@ -3344,9 +5575,12 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                       onToggle={() => setExpandedPref(expandedPref === 'jian-li' ? null : 'jian-li')}
                       onSelect={(opt: string) => setSupervisionStd(opt)}
                       defaultVal={supervisionStd} 
-                      items={[
-                        { name: '施工监理服务费收费标准', rates: SUPERVISION_FEE_CONFIG.rates, axis: SUPERVISION_FEE_CONFIG.axis, labels: ['费率 (%)', '工程费 (亿元)'] },
-                      ]}
+                      items={SUPERVISION_PROVINCES.map((p) => ({
+                        name: `${SUPERVISION_STANDARDS[p].name} · 监理服务费费率`,
+                        rates: SUPERVISION_STANDARDS[p].rates.map((r) => `${r}%`),
+                        axis: SUPERVISION_STANDARDS[p].axis.map(String),
+                        labels: ['费率 (%)', '计费额 (万元)'],
+                      }))}
                     />
 
                     <FeeSection 

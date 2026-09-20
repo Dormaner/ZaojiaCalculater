@@ -1,6 +1,10 @@
 import express from 'express';
 import { Request, Response } from 'express';
 
+import { SUPERVISION_STANDARDS, calculateSupervision } from './src/data/supervisionStandards';
+import { FEASIBILITY_STANDARDS, calculateFeasibility } from './src/data/feasibilityStandards';
+import { DESIGN_STANDARDS, calculateDesign } from './src/data/designStandards';
+
 const app = express();
 const port = 3001;
 
@@ -1003,6 +1007,190 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
   } catch (err: any) {
     console.error(err);
     return res.status(500).json({ error: '后端计算服务发生异常: ' + err.message });
+  }
+});
+
+// ==========================================
+// 施工监理服务费（河南 / 湖南 / 沪苏浙）
+// ==========================================
+
+app.post('/api/calculate-supervision', (req: Request, res: Response) => {
+  try {
+    const {
+      province,
+      serviceType,
+      amount,
+      categoryName,
+      categoryFactor,
+      extraFactor,
+      extraLabels,
+      delegateRatio,
+      withSafety,
+    } = req.body;
+
+    const standard = SUPERVISION_STANDARDS[province];
+    if (!standard) {
+      return res.status(400).json({ error: `不支持的监理费测算省份：${province}` });
+    }
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return res.status(400).json({ error: '请输入有效的计费额' });
+    }
+    const factor = Number(categoryFactor);
+    if (!Number.isFinite(factor) || factor <= 0) {
+      return res.status(400).json({ error: '请选择工程类别或自定义系数' });
+    }
+
+    const result = calculateSupervision({
+      standard,
+      amount: amt,
+      serviceType: String(serviceType || ''),
+      categoryName: String(categoryName || '固定系数 1.0'),
+      categoryFactor: factor,
+      extraFactor: Number(extraFactor) || 0,
+      extraLabels: Array.isArray(extraLabels) ? extraLabels.map(String) : [],
+      delegateRatio: Number(delegateRatio) || 1,
+      withSafety: !!withSafety,
+    });
+
+    return res.json({ totalFee: Math.round(result.finalYuan), reportText: result.reportText });
+  } catch (err: any) {
+    console.error(err);
+    return res.status(500).json({ error: '监理费计算服务发生异常: ' + err.message });
+  }
+});
+
+// ==========================================
+// 建设项目前期工作咨询费（工程可研费：湖南 / 浙江 / 广西）
+// ==========================================
+
+app.post('/api/calculate-feasibility', (req: Request, res: Response) => {
+  try {
+    const {
+      province,
+      serviceKeys,
+      amount,
+      industryFactor,
+      industryLabel,
+      complexityFactor,
+      otherFactor,
+      otherLabels,
+    } = req.body;
+
+    const standard = FEASIBILITY_STANDARDS[province];
+    if (!standard) {
+      return res.status(400).json({ error: `不支持的可研费测算省份：${province}` });
+    }
+
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return res.status(400).json({ error: '请输入有效的估算投资额' });
+    }
+
+    const keys = Array.isArray(serviceKeys) ? serviceKeys.map(String) : [];
+    if (keys.length === 0) {
+      return res.status(400).json({ error: '请至少选择一项咨询服务类型' });
+    }
+
+    const result = calculateFeasibility({
+      standard,
+      amount: amt,
+      serviceKeys: keys,
+      industryFactor: Number(industryFactor) || 1,
+      industryLabel: String(industryLabel || '未指定'),
+      complexityFactor: Number(complexityFactor) || 1,
+      otherFactor: Number(otherFactor) || 1,
+      otherLabels: Array.isArray(otherLabels) ? otherLabels.map(String) : [],
+    });
+
+    return res.json({
+      totalFee: result.totalYuan,
+      totalWan: result.totalWan,
+      reportText: result.reportText,
+    });
+  } catch (err: any) {
+    console.error(err);
+    return res.status(500).json({ error: '可研费计算服务发生异常: ' + err.message });
+  }
+});
+
+// ==========================================
+// 工程设计费（计价格〔2002〕10号 第 7 章 建筑市政工程设计）
+// ==========================================
+
+app.post('/api/calculate-design', (req: Request, res: Response) => {
+  try {
+    const {
+      province,
+      provinceLabel,
+      amount,
+      categoryName,
+      billingNote,
+      professionFactor,
+      complexityTableName,
+      complexityName,
+      complexityFactor,
+      additionalFactors,
+      modeName,
+      modeFactor,
+      otherFees,
+      phase,
+      standard: standardSnapshot,
+    } = req.body;
+
+    // 自定义省份：优先使用前端传入的 standard 快照；否则回退到内置口径（仅「全国」）
+    const standard =
+      standardSnapshot && Array.isArray(standardSnapshot.axis) && Array.isArray(standardSnapshot.prices)
+        ? (standardSnapshot as (typeof DESIGN_STANDARDS)[string])
+        : DESIGN_STANDARDS[province];
+    if (!standard) {
+      return res.status(400).json({ error: `不支持的设计费测算口径：${province}` });
+    }
+
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return res.status(400).json({ error: '请输入有效的计费额' });
+    }
+
+    const pFactor = Number(professionFactor);
+    if (!Number.isFinite(pFactor) || pFactor <= 0) {
+      return res.status(400).json({ error: '请选择工程类别或自定义专业系数' });
+    }
+
+    const result = calculateDesign({
+      standard,
+      provinceLabel: provinceLabel ? String(provinceLabel) : undefined,
+      amount: amt,
+      categoryName: String(categoryName || '建筑、市政、电信工程'),
+      billingNote: billingNote ? String(billingNote) : undefined,
+      professionFactor: pFactor,
+      complexityTableName: complexityTableName ? String(complexityTableName) : undefined,
+      complexityName: String(complexityName || '未指定'),
+      complexityFactor: Number(complexityFactor) || 1,
+      additionalFactors: Array.isArray(additionalFactors)
+        ? additionalFactors.map((f: any) => ({ name: String(f?.name ?? ''), factor: Number(f?.factor) || 1 }))
+        : [],
+      modeName: String(modeName || '新建项目'),
+      modeFactor: Number(modeFactor) || 1,
+      otherFees: Array.isArray(otherFees)
+        ? otherFees.map((f: any) => ({ name: String(f?.name ?? ''), ratio: Number(f?.ratio) || 0 }))
+        : [],
+      phase: {
+        name: String(phase?.name || '未指定'),
+        p1: Number(phase?.p1) || 0,
+        p2: Number(phase?.p2) || 0,
+        p3: Number(phase?.p3) || 0,
+      },
+    });
+
+    return res.json({
+      totalFee: result.finalYuan,
+      totalWan: result.finalWan,
+      reportText: result.reportText,
+    });
+  } catch (err: any) {
+    console.error(err);
+    return res.status(500).json({ error: '设计费计算服务发生异常: ' + err.message });
   }
 });
 

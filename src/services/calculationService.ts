@@ -50,77 +50,10 @@ export function calculateDesignFee(budget: number, axis: string[], basePrices: s
 }
 
 /**
- * 计算编制项目建议书费用
+ * 工程可研费（建设项目前期工作咨询费）
+ * 已迁移至 src/data/feasibilityStandards.ts（前后端共用的唯一数据源）
+ * 工程监理费已迁移至 src/data/supervisionStandards.ts
  */
-export function calculateProjectProposalFee(budget: number, axis: string[], rates: string[], industryFactor: number) {
-  const budgetInEyre = budget / 10000;
-  return interpolate(budgetInEyre, axis, rates, false) * industryFactor;
-}
-
-/**
- * 计算编制可行性研究报告费用
- */
-export function calculateFeasibilityReportFee(budget: number, axis: string[], rates: string[], industryFactor: number) {
-  const budgetInEyre = budget / 10000;
-  return interpolate(budgetInEyre, axis, rates, false) * industryFactor;
-}
-
-/**
- * 计算评估项目建议书费用
- */
-export function calculateProjectProposalEvaluationFee(budget: number, axis: string[], rates: string[], industryFactor: number) {
-  const budgetInEyre = budget / 10000;
-  return interpolate(budgetInEyre, axis, rates, false) * industryFactor;
-}
-
-/**
- * 计算评估可行性研究报告费用
- */
-export function calculateFeasibilityReportEvaluationFee(budget: number, axis: string[], rates: string[], industryFactor: number) {
-  const budgetInEyre = budget / 10000;
-  return interpolate(budgetInEyre, axis, rates, false) * industryFactor;
-}
-
-/**
- * 计算汇总工程可研费用 (内部调用上述四个函数)
- */
-export function calculateFeasibilityFee(budget: number, config: { name: string, axis: string[], rates: string[] }[], industryFactor: number) {
-  const results: Record<string, number> = {};
-  let total = 0;
-
-  // 根据配置中的项目名称，分别调用具体函数
-  config.forEach(item => {
-    let fee = 0;
-    if (item.name === '编制项目建议书') {
-      fee = calculateProjectProposalFee(budget, item.axis, item.rates, industryFactor);
-    } else if (item.name === '编制可行性研究报告') {
-      fee = calculateFeasibilityReportFee(budget, item.axis, item.rates, industryFactor);
-    } else if (item.name === '评估项目建议书') {
-      fee = calculateProjectProposalEvaluationFee(budget, item.axis, item.rates, industryFactor);
-    } else if (item.name === '评估可行性研究报告') {
-      fee = calculateFeasibilityReportEvaluationFee(budget, item.axis, item.rates, industryFactor);
-    } else {
-      // 兜底逻辑
-      fee = interpolate(budget / 10000, item.axis, item.rates, false) * industryFactor;
-    }
-    
-    results[item.name] = fee;
-    total += fee;
-  });
-
-  return { total, details: results };
-}
-
-/**
- * 计算工程监理费
- */
-export function calculateSupervisionFee(budget: number, axis: string[], rates: string[], industryFactor: number) {
-  const budgetInEyre = budget / 10000;
-  const fee = interpolate(budgetInEyre, axis, rates, true);
-  
-  // 结果转回万元并应用行业系数
-  return fee * 10000 * industryFactor;
-}
 
 /**
  * 累进计费计算函数 (类似阶梯电价/差额定额累进计费)
