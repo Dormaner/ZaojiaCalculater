@@ -23,3 +23,6 @@ android/captures/
 _design_extract/
 _ch7.txt
 _test_*.ts
+
+# Office 打开文件时生成的临时锁文件
+~$*

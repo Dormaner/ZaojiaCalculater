@@ -11,20 +11,16 @@ import {
   ChevronRight, 
   ChevronLeft,
   ArrowRight, 
-  ArrowLeft,
   Search, 
   Trash2, 
   FileText, 
   RotateCcw, 
-  Image as ImageIcon,
   CheckCircle2,
   Lock,
-  Smartphone,
   Settings2,
   Percent,
   BookOpen,
   Info,
-  LogOut,
   ChevronDown,
   LayoutDashboard,
   BarChart3,
@@ -34,7 +30,6 @@ import {
   Landmark,
   Home,
   MessageSquare,
-  Star,
   Plus,
   PlusCircle,
   MinusCircle,
@@ -45,7 +40,7 @@ import {
   X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TabType, CalculationRecord } from './types';
+import { TabType, HistoryRecord, HistoryModule, DefaultProvinces } from './types';
 
 import {
   interpolate,
@@ -104,14 +99,97 @@ const CONSULTING_FEE_CONFIG = [
   { name: '结算审核费', rates: ['0.60%', '0.46%', '0.36%', '0.28%', '0.22%', '0.15%', '0.10%'], axis: ['0', '0.05', '0.3', '1', '5', '10', '50'], labels: ['费率 (%)', '审核额 (亿元)'] },
 ];
 
-// Mock Data
-const MOCK_RECORDS: CalculationRecord[] = [
-  { id: '1', title: '市政道路扩建工程', date: '2023-10-25 14:30', totalAmount: 883.27, type: 'architecture' },
-  { id: '2', title: '办公综合体设计', date: '2023-10-24 09:15', totalAmount: 2450.00, type: 'corporate_fare' },
-  { id: '3', title: '工业厂房二期扩建', date: '2023-10-22 16:45', totalAmount: 1120.50, type: 'factory' },
-  { id: '4', title: '中心公园景观改造', date: '2023-10-21 11:20', totalAmount: 425.80, type: 'park' },
-  { id: '5', title: '污水处理站设备采购', date: '2023-10-20 15:05', totalAmount: 315.22, type: 'water_drop' },
-];
+// ==========================================
+// 历史记录（localStorage 持久化）
+// ==========================================
+
+const HISTORY_STORAGE_KEY = 'cost_calculator_history';
+/** 历史记录条数上限（超出丢弃最旧） */
+const HISTORY_LIMIT = 200;
+/** 同一秒内报告文本完全相同则视为重复，不重复写入 */
+const HISTORY_DEDUP_MS = 1500;
+
+const loadHistory = (): HistoryRecord[] => {
+  try {
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((r: any) => r && typeof r.reportText === 'string' && typeof r.id === 'string')
+      .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0))
+      .slice(0, HISTORY_LIMIT);
+  } catch {
+    return [];
+  }
+};
+
+const saveHistory = (list: HistoryRecord[]) => {
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    /* 配额超限或隐私模式：忽略，不影响使用 */
+  }
+};
+
+/** 从报告文本提取「项目总…费用：¥xxx 元」的元值 */
+const extractTotalYuan = (text: string): number => {
+  if (!text) return 0;
+  const line = text.split('\n').find((l) => l.includes('项目总') && l.includes('¥'));
+  if (!line) return 0;
+  const m = line.match(/¥\s*([\d,]+)/);
+  return m ? parseInt(m[1].replace(/,/g, ''), 10) || 0 : 0;
+};
+
+/** 历史卡片时间展示 */
+const fmtHistoryTime = (ts: number) => {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+/** 历史卡片的模块色标 */
+const HISTORY_MODULE_META: Record<HistoryModule, { name: string; color: string }> = {
+  design: { name: '工程设计费', color: '#007AFF' },
+  feasibility: { name: '工程可研费', color: '#34C759' },
+  supervision: { name: '工程监理费', color: '#FF9500' },
+  consulting: { name: '造价咨询费', color: '#AF52DE' },
+};
+
+/** 数值展示：最多 4 位小数 + 千分位 */
+const fmtAmount = (v: number) => (Math.round(v * 10000) / 10000).toLocaleString();
+
+// ==========================================
+// 默认省份（localStorage 持久化）
+// ==========================================
+
+const DEFAULT_PROVINCES_KEY = 'cost_calculator_default_provinces';
+
+const DEFAULT_PROVINCES_FALLBACK: DefaultProvinces = {
+  consulting: '湖南省',
+  feasibility: '湖南省',
+  supervision: '湖南省',
+  design: '全国',
+};
+
+const loadDefaultProvinces = (): DefaultProvinces => {
+  try {
+    const raw = localStorage.getItem(DEFAULT_PROVINCES_KEY);
+    if (!raw) return { ...DEFAULT_PROVINCES_FALLBACK };
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_PROVINCES_FALLBACK, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+  } catch {
+    return { ...DEFAULT_PROVINCES_FALLBACK };
+  }
+};
+
+const saveDefaultProvinces = (cfg: DefaultProvinces) => {
+  try {
+    localStorage.setItem(DEFAULT_PROVINCES_KEY, JSON.stringify(cfg));
+  } catch {
+    /* ignore */
+  }
+};
 
 function FeeItem({ item, index, isEditable }: any) {
   const [isOpen, setIsOpen] = useState(false);
@@ -1004,6 +1082,28 @@ export default function App() {
     const ratioParsed = parseFloat(supervisionDelegateRatio);
     const delegateRatio = Number.isFinite(ratioParsed) && ratioParsed > 0 ? Math.min(ratioParsed, 100) / 100 : 1;
 
+    const commitSupervisionResult = (text: string) => {
+      setSupervisionResultText(text);
+      setShowSupervisionResult(true);
+      addHistoryRecord({
+        module: 'supervision',
+        moduleName: HISTORY_MODULE_META.supervision.name,
+        title: category.name,
+        subtitle: `计费基数 ${fmtAmount(amount)} 万元 · 难度系数 ${category.factor.toFixed(2)}`,
+        province: supervisionProvince,
+        amount,
+        totalWan: extractTotalYuan(text) / 10000,
+        totalYuan: extractTotalYuan(text),
+        reportText: text,
+        payload: {
+          province: supervisionProvince,
+          serviceType: supervisionServiceType,
+          categoryIndex: supervisionCategoryIndex,
+          amount,
+        },
+      });
+    };
+
     // 优先调用后端 API
     try {
       const response = await fetch('http://localhost:3001/api/calculate-supervision', {
@@ -1023,8 +1123,7 @@ export default function App() {
       });
       if (response.ok) {
         const data = await response.json();
-        setSupervisionResultText(data.reportText);
-        setShowSupervisionResult(true);
+        commitSupervisionResult(data.reportText);
         return;
       }
     } catch (err) {
@@ -1043,8 +1142,7 @@ export default function App() {
       delegateRatio,
       withSafety: supervisionWithSafety,
     });
-    setSupervisionResultText(result.reportText);
-    setShowSupervisionResult(true);
+    commitSupervisionResult(result.reportText);
   };
 
   // ==================== 建设项目前期工作咨询费（工程可研费，5 步向导） ====================
@@ -1143,6 +1241,27 @@ export default function App() {
       otherLabels: getFeasibilityOtherLabels(),
     };
 
+    const serviceNames = getSelectedFeasibilityServices().map((s) => s.name);
+    const commitFeasibilityResult = (text: string) => {
+      setFeasibilityResultText(text);
+      setShowFeasibilityResult(true);
+      addHistoryRecord({
+        module: 'feasibility',
+        moduleName: HISTORY_MODULE_META.feasibility.name,
+        title:
+          serviceNames.length > 2
+            ? `${serviceNames.slice(0, 2).join('、')} 等 ${serviceNames.length} 项`
+            : serviceNames.join('、'),
+        subtitle: `计费基数 ${fmtAmount(amount)} 万元`,
+        province: feasibilityProvince,
+        amount,
+        totalWan: extractTotalYuan(text) / 10000,
+        totalYuan: extractTotalYuan(text),
+        reportText: text,
+        payload: { ...payload },
+      });
+    };
+
     // 优先调用后端 API
     try {
       const response = await fetch('http://localhost:3001/api/calculate-feasibility', {
@@ -1152,8 +1271,7 @@ export default function App() {
       });
       if (response.ok) {
         const data = await response.json();
-        setFeasibilityResultText(data.reportText);
-        setShowFeasibilityResult(true);
+        commitFeasibilityResult(data.reportText);
         return;
       }
     } catch (err) {
@@ -1165,8 +1283,7 @@ export default function App() {
       standard: getFeasibilityStandard(),
       ...payload,
     });
-    setFeasibilityResultText(result.reportText);
-    setShowFeasibilityResult(true);
+    commitFeasibilityResult(result.reportText);
   };
 
 
@@ -1197,9 +1314,19 @@ export default function App() {
   const [globalPresets, setGlobalPresets] = useState(['默认偏好']);
   const [selectedGlobalPreset, setSelectedGlobalPreset] = useState('默认偏好');
   const [showSavePresetModal, setShowSavePresetModal] = useState(false);
-  const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
   const [showOverwriteWarning, setShowOverwriteWarning] = useState(false);
+
+  // 「历史」页与「我的」页默认省份
+  const [history, setHistory] = useState<HistoryRecord[]>(() => loadHistory());
+  const [historyKeyword, setHistoryKeyword] = useState('');
+  const [historyFilter, setHistoryFilter] = useState<'all' | HistoryModule>('all');
+  const [historyDetail, setHistoryDetail] = useState<HistoryRecord | null>(null);
+  const [historyCopied, setHistoryCopied] = useState(false);
+  const [historyUndo, setHistoryUndo] = useState<{ record: HistoryRecord; index: number } | null>(null);
+  const [showClearHistoryConfirm, setShowClearHistoryConfirm] = useState(false);
+  const [defaultProvinces, setDefaultProvinces] = useState<DefaultProvinces>(() => loadDefaultProvinces());
+  const [defaultProvinceSaved, setDefaultProvinceSaved] = useState(false);
 
   // Calculation Inputs
   const [engineeringBudget, setEngineeringBudget] = useState<string>('');
@@ -1208,10 +1335,10 @@ export default function App() {
   const [calcResults, setCalcResults] = useState<any>(null);
 
   // Sub-tabs for the main calculator
-  const [calculatorSubTab, setCalculatorSubTab] = useState<'design' | 'feasibility' | 'supervision' | 'consulting'>('consulting');
+  const [calculatorSubTab, setCalculatorSubTab] = useState<'design' | 'feasibility' | 'supervision' | 'consulting'>('design');
 
   // States for Supervision Fee Questionnaire（5 步向导，与造价咨询费保持一致）
-  const [supervisionProvince, setSupervisionProvince] = useState<string>('湖南省');
+  const [supervisionProvince, setSupervisionProvince] = useState<string>(() => loadDefaultProvinces().supervision);
   const [supervisionServiceType, setSupervisionServiceType] = useState<string>('');
   const [supervisionAmount, setSupervisionAmount] = useState<string>('');
   const [supervisionCategoryIndex, setSupervisionCategoryIndex] = useState<number | null>(null);
@@ -1228,7 +1355,7 @@ export default function App() {
   };
 
   // States for Feasibility Fee Questionnaire（工程可研费，5 步向导）
-  const [feasibilityProvince, setFeasibilityProvince] = useState<string>('湖南省');
+  const [feasibilityProvince, setFeasibilityProvince] = useState<string>(() => loadDefaultProvinces().feasibility);
   const [feasibilityServiceKeys, setFeasibilityServiceKeys] = useState<string[]>(['report']);
   const [feasibilityAmount, setFeasibilityAmount] = useState<string>('');
   const [feasibilityIndustryKey, setFeasibilityIndustryKey] = useState<string>('i4');
@@ -1245,7 +1372,7 @@ export default function App() {
   };
 
   // States for Design Fee Questionnaire（工程设计费，5 步向导，仅第 7 章 建筑市政工程设计）
-  const [designProvince, setDesignProvince] = useState<string>('全国');
+  const [designProvince, setDesignProvince] = useState<string>(() => loadDefaultProvinces().design);
   const [designCategoryKey, setDesignCategoryKey] = useState<string>('cat-building');
   const [designProfessionCustom, setDesignProfessionCustom] = useState<string>('');
   const [designAmount, setDesignAmount] = useState<string>('');
@@ -1297,7 +1424,7 @@ export default function App() {
   };
 
   // States for Cost Consulting Questionnaire (Progressive step-by-step slider)
-  const [consultingProvince, setConsultingProvince] = useState<string>('湖南省');
+  const [consultingProvince, setConsultingProvince] = useState<string>(() => loadDefaultProvinces().consulting);
   const [consultingServiceType, setConsultingServiceType] = useState<number | null>(null);
   const [consultingSpecificType, setConsultingSpecificType] = useState<string>('');
   const [unitProjects, setUnitProjects] = useState<{ id: string; name: string; cost: string }[]>([
@@ -1397,6 +1524,184 @@ export default function App() {
       }
     }
     return '';
+  };
+
+  // ==================== 历史记录（localStorage）====================
+  /** 历史变化即落盘 */
+  useEffect(() => {
+    saveHistory(history);
+  }, [history]);
+
+  /** 追加一条历史记录（同一秒内报告文本完全相同则跳过） */
+  const addHistoryRecord = (rec: Omit<HistoryRecord, 'id' | 'createdAt'>) => {
+    setHistory((prev) => {
+      const now = Date.now();
+      const head = prev[0];
+      if (head && head.reportText === rec.reportText && now - head.createdAt < HISTORY_DEDUP_MS) {
+        return prev;
+      }
+      const record: HistoryRecord = {
+        ...rec,
+        id: `${now}-${Math.random().toString(36).slice(2, 6)}`,
+        createdAt: now,
+      };
+      return [record, ...prev].slice(0, HISTORY_LIMIT);
+    });
+  };
+
+  /** 删除一条历史记录（支持撤销） */
+  const removeHistoryRecord = (id: string) => {
+    const index = history.findIndex((r) => r.id === id);
+    if (index < 0) return;
+    const record = history[index];
+    setHistory((prev) => prev.filter((r) => r.id !== id));
+    setHistoryUndo({ record, index });
+    if (historyDetail?.id === id) setHistoryDetail(null);
+  };
+
+  const undoRemoveHistory = () => {
+    if (!historyUndo) return;
+    const { record, index } = historyUndo;
+    setHistory((prev) => {
+      const next = [...prev];
+      next.splice(Math.min(index, next.length), 0, record);
+      return next.slice(0, HISTORY_LIMIT);
+    });
+    setHistoryUndo(null);
+  };
+
+  /** 撤销提示 4 秒后自动消失 */
+  useEffect(() => {
+    if (!historyUndo) return;
+    const timer = setTimeout(() => setHistoryUndo(null), 4000);
+    return () => clearTimeout(timer);
+  }, [historyUndo]);
+
+  const filteredHistory = history.filter((r) => {
+    if (historyFilter !== 'all' && r.module !== historyFilter) return false;
+    const kw = historyKeyword.trim().toLowerCase();
+    if (!kw) return true;
+    return (
+      r.title.toLowerCase().includes(kw) ||
+      r.subtitle.toLowerCase().includes(kw) ||
+      r.province.toLowerCase().includes(kw) ||
+      r.moduleName.toLowerCase().includes(kw)
+    );
+  });
+
+  const copyHistoryReport = async () => {
+    if (!historyDetail) return;
+    try {
+      await navigator.clipboard.writeText(historyDetail.reportText);
+      setHistoryCopied(true);
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = historyDetail.reportText;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        setHistoryCopied(true);
+      } catch {
+        setHistoryCopied(false);
+      }
+    }
+    setTimeout(() => setHistoryCopied(false), 1800);
+  };
+
+  /** 「重新测算」：回填参数并跳到对应模块 */
+  const restoreHistoryRecord = (rec: HistoryRecord) => {
+    const p = (rec.payload || {}) as any;
+    setHistoryDetail(null);
+    setActiveTab('calculator');
+    if (rec.module === 'design') {
+      setCalculatorSubTab('design');
+      applyDesignCategory('cat-building');
+      setDesignProvince(typeof p.province === 'string' ? p.province : rec.province);
+      if (typeof p.categoryKey === 'string') applyDesignCategory(p.categoryKey);
+      if (typeof p.complexityKey === 'string') setDesignComplexityKey(p.complexityKey);
+      if (typeof p.phaseRowKey === 'string') setDesignPhaseRowKey(p.phaseRowKey);
+      setDesignAmount(rec.amount ? String(rec.amount) : '');
+      navigateDesignStep(2);
+    } else if (rec.module === 'feasibility') {
+      setCalculatorSubTab('feasibility');
+      setFeasibilityProvince(typeof p.province === 'string' ? p.province : rec.province);
+      if (Array.isArray(p.serviceKeys)) setFeasibilityServiceKeys(p.serviceKeys as string[]);
+      setFeasibilityAmount(rec.amount ? String(rec.amount) : '');
+      navigateFeasibilityStep(2);
+    } else if (rec.module === 'supervision') {
+      setCalculatorSubTab('supervision');
+      setSupervisionProvince(typeof p.province === 'string' ? p.province : rec.province);
+      if (typeof p.serviceType === 'string') setSupervisionServiceType(p.serviceType);
+      setSupervisionAmount(rec.amount ? String(rec.amount) : '');
+      navigateSupervisionStep(2);
+    } else {
+      setCalculatorSubTab('consulting');
+      setConsultingProvince(typeof p.province === 'string' ? p.province : rec.province);
+      if (typeof p.serviceType === 'number') setConsultingServiceType(p.serviceType);
+      if (typeof p.specificType === 'string') setConsultingSpecificType(p.specificType);
+      if (Array.isArray(p.unitProjects)) setUnitProjects(p.unitProjects as any[]);
+      if (typeof p.categoryIndex === 'number' || p.categoryIndex === null) {
+        setConsultingCategoryIndex(p.categoryIndex as number | null);
+      }
+      setShowConsultingResult(false);
+      navigateConsultingStep(2);
+    }
+  };
+
+  // ==================== 默认省份（localStorage）====================
+  const updateDefaultProvince = (key: keyof DefaultProvinces, value: string) => {
+    const next = { ...defaultProvinces, [key]: value };
+    setDefaultProvinces(next);
+    saveDefaultProvinces(next);
+    setDefaultProvinceSaved(true);
+    setTimeout(() => setDefaultProvinceSaved(false), 1600);
+  };
+
+  const resetDefaultProvinces = () => {
+    const next = { ...DEFAULT_PROVINCES_FALLBACK };
+    setDefaultProvinces(next);
+    saveDefaultProvinces(next);
+    setDefaultProvinceSaved(true);
+    setTimeout(() => setDefaultProvinceSaved(false), 1600);
+  };
+
+  /** 自定义省份被删除后，若它正是某模块的默认省份则回落到内置省份 */
+  const fallbackDefaultProvince = (key: keyof DefaultProvinces, removedName: string) => {
+    setDefaultProvinces((prev) => {
+      if (prev[key] !== removedName) return prev;
+      const next = { ...prev, [key]: DEFAULT_PROVINCES_FALLBACK[key] };
+      saveDefaultProvinces(next);
+      return next;
+    });
+  };
+
+  /** 造价咨询费：写入结果 + 历史记录 */
+  const commitConsultingResult = (text: string, projects: any[]) => {
+    const amount = projects.reduce((s, p) => s + (parseFloat(p?.cost) || 0), 0);
+    setConsultingResultText(text);
+    setShowConsultingResult(true);
+    addHistoryRecord({
+      module: 'consulting',
+      moduleName: HISTORY_MODULE_META.consulting.name,
+      title: consultingSpecificType || '造价咨询服务',
+      subtitle: `计费基数 ${fmtAmount(amount)} 万元`,
+      province: consultingProvince,
+      amount,
+      totalWan: extractTotalYuan(text) / 10000,
+      totalYuan: extractTotalYuan(text),
+      reportText: text,
+      payload: {
+        province: consultingProvince,
+        serviceType: consultingServiceType,
+        specificType: consultingSpecificType,
+        unitProjects: projects,
+        categoryIndex: consultingCategoryIndex,
+      },
+    });
   };
 
   const renderResultText = (text: string) => {
@@ -1606,8 +1911,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
 项目总造价服务费用：¥${Math.round(totalYuan).toLocaleString()} 元
 备注：本费用仅出具纸质/电子版造价报告，不含施工驻场、全过程现场管控服务。`;
 
-      setConsultingResultText(baseText);
-      setShowConsultingResult(true);
+      commitConsultingResult(baseText, validProjects);
 
     } else if (consultingServiceType === 2) {
       const match = consultingSpecificType.match(/（([A-D])型）/);
@@ -1661,8 +1965,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
 项目总咨询费用：¥${Math.round(totalYuan).toLocaleString()} 元
 备注：本费用为全过程造价咨询服务包干费用，不含驻场人员收费价格。`;
 
-      setConsultingResultText(baseText);
-      setShowConsultingResult(true);
+      commitConsultingResult(baseText, validProjects);
 
     } else if (consultingServiceType === 3) {
       const match = consultingSpecificType.match(/（([A-D])型）/);
@@ -1724,8 +2027,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
 项目总跟踪审计费用：¥${Math.round(adjustedFinalFeeYuan).toLocaleString()} 元
 备注：本包干费用已包含全部审计工作。`;
 
-      setConsultingResultText(baseText);
-      setShowConsultingResult(true);
+      commitConsultingResult(baseText, validProjects);
     }
   };
 
@@ -1842,8 +2144,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       remark: '根据浙江省行业收费规范，造价咨询业务单次计费总费用不足 3,000 元的，按 3,000 元底线标准起收。',
     });
 
-    setConsultingResultText(baseText);
-    setShowConsultingResult(true);
+    commitConsultingResult(baseText, validProjects);
   };
 
   const calculateCustom = (validProjects: any[], category: any, categoryFactor: number, customProv: CustomProvince) => {
@@ -1922,8 +2223,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       remark: `本测算依据${customProv.name}自定义收费标准与系数计算，仅供内部参考。`,
     });
 
-    setConsultingResultText(baseText);
-    setShowConsultingResult(true);
+    commitConsultingResult(baseText, validProjects);
   };
 
   const calculateGuizhou = (validProjects: any[], category: any, categoryFactor: number) => {
@@ -2035,8 +2335,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       remark: '本测算已结合贵州省自律性指导标准约定的单次收费底线（普通项目 3,000 元，工程造价鉴定 5,000 元）完成限额校对。',
     });
 
-    setConsultingResultText(baseText);
-    setShowConsultingResult(true);
+    commitConsultingResult(baseText, validProjects);
   };
 
   const handleCalculateConsulting = async () => {
@@ -2079,8 +2378,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
 
       if (response.ok) {
         const data = await response.json();
-        setConsultingResultText(data.reportText);
-        setShowConsultingResult(true);
+        commitConsultingResult(data.reportText, validProjects);
         console.log('Calculation computed successfully by the backend API.');
         return;
       }
@@ -2166,6 +2464,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
   const removeCustomDesignProvince = (name: string) => {
     saveCustomDesignProvinces(customDesignProvinces.filter((p) => p.name !== name));
     if (designProvince === name) setDesignProvince('全国');
+    fallbackDefaultProvince('design', name);
   };
 
   /** 应用某省份（内置规则或自定义规则），并重置相关状态 */
@@ -2363,6 +2662,28 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       phase,
     };
 
+    const commitDesignResult = (text: string) => {
+      setDesignResultText(text);
+      setShowDesignResult(true);
+      addHistoryRecord({
+        module: 'design',
+        moduleName: HISTORY_MODULE_META.design.name,
+        title: getDesignCategoryName(),
+        subtitle: `计费额 ${fmtAmount(amount)} 万元 · ${complexity.name}`,
+        province: designProvince,
+        amount,
+        totalWan: extractTotalYuan(text) / 10000,
+        totalYuan: extractTotalYuan(text),
+        reportText: text,
+        payload: {
+          province: designProvince,
+          categoryKey: designCategoryKey,
+          complexityKey: designComplexityKey,
+          phaseRowKey: getDesignPhaseRow().key,
+        },
+      });
+    };
+
     // 优先调用后端 API（自定义省份时附带 standard 快照）
     try {
       const response = await fetch('http://localhost:3001/api/calculate-design', {
@@ -2374,8 +2695,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       });
       if (response.ok) {
         const data = await response.json();
-        setDesignResultText(data.reportText);
-        setShowDesignResult(true);
+        commitDesignResult(data.reportText);
         return;
       }
     } catch (err) {
@@ -2387,8 +2707,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       standard: getDesignStandard(),
       ...payload,
     });
-    setDesignResultText(result.reportText);
-    setShowDesignResult(true);
+    commitDesignResult(result.reportText);
   };
 
   /** 跳转报告页汇总（同步项目概算总计） */
@@ -3114,13 +3433,6 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                                 </div>
                               )}
                               <div className="flex justify-center gap-3 pt-2">
-                                <button
-                                  onClick={goToReportPage}
-                                  className="flex items-center gap-1.5 px-6 py-4 bg-[#007AFF] text-white rounded-2xl text-xs font-bold hover:bg-[#0052b3] transition-all shadow-md active:scale-[0.98]"
-                                >
-                                  查看汇总页
-                                  <LayoutDashboard className="w-3.5 h-3.5" />
-                                </button>
                                 <button
                                   onClick={resetDesignWizard}
                                   className="flex items-center gap-1.5 px-6 py-4 bg-[#0F172A] text-white rounded-2xl text-xs font-bold hover:bg-[#1e293b] transition-all shadow-md active:scale-[0.98]"
@@ -4755,53 +5067,299 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
               className="space-y-4 pt-2"
             >
               <div className="mb-2">
-                <h2 className="text-xl font-bold tracking-tight mb-2 px-1">最近计算</h2>
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <h2 className="text-xl font-bold tracking-tight">历史</h2>
+                  {history.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowClearHistoryConfirm(true)}
+                      className="text-[10px] font-bold text-[#ba1a1a] hover:underline flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      清空全部
+                    </button>
+                  )}
+                </div>
                 <div className="relative group">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#76777d]" />
                   <input
                     type="text"
-                    placeholder="搜索项目名称"
+                    value={historyKeyword}
+                    onChange={(e) => setHistoryKeyword(e.target.value)}
+                    placeholder="搜索工程类别 / 服务类型 / 省份"
                     className="w-full bg-white border border-[#c6c6cd]/60 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F172A]/5"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-between px-1">
-                <h3 className="font-bold text-sm text-[#191c1e]">历史计算记录</h3>
-                <span className="text-[10px] bg-[#d5e3fd] text-[#57657b] px-2 py-0.5 rounded-full font-bold">共 {MOCK_RECORDS.length} 条</span>
+              {/* 模块筛选 */}
+              <div className="flex flex-wrap gap-1.5 px-1">
+                {([
+                  { key: 'all' as const, label: '全部' },
+                  { key: 'design' as const, label: '工程设计费' },
+                  { key: 'feasibility' as const, label: '工程可研费' },
+                  { key: 'supervision' as const, label: '工程监理费' },
+                  { key: 'consulting' as const, label: '造价咨询费' },
+                ]).map((chip) => {
+                  const countFor =
+                    chip.key === 'all' ? history.length : history.filter((r) => r.module === chip.key).length;
+                  const active = historyFilter === chip.key;
+                  return (
+                    <button
+                      key={chip.key}
+                      type="button"
+                      onClick={() => setHistoryFilter(chip.key)}
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${
+                        active
+                          ? 'bg-[#007AFF] text-white border-[#007AFF]'
+                          : 'bg-white text-[#45464d] border-[#c6c6cd]/60 hover:border-[#007AFF]'
+                      }`}
+                    >
+                      {chip.label} {countFor}
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {MOCK_RECORDS.map((record) => (
-                  <motion.div
-                    key={record.id}
-                    whileHover={{ scale: 1.01 }}
-                    onClick={() => setActiveTab('report')}
-                    className="bg-white border border-[#c6c6cd]/60 rounded-lg p-3 shadow-sm hover:border-[#008ebf] transition-all cursor-pointer group"
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="p-2 bg-[#f2f4f6] rounded-md group-hover:bg-[#dae2fd] transition-colors">
-                        <ImageIcon className="w-4 h-4 text-[#515f74]" />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); /* Delete logic */ }}
-                          className="p-1.5 text-[#76777d] hover:text-[#ba1a1a] hover:bg-[#ffdad6] rounded-md transition-all"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                        <ChevronRight className="w-4 h-4 text-[#c6c6cd]" />
-                      </div>
-                    </div>
-                    <h4 className="font-bold text-sm mb-0.5 truncate">{record.title}</h4>
-                    <p className="text-[11px] text-[#76777d] mb-3">{record.date}</p>
-                    <div className="flex items-end justify-between pt-2 border-t border-[#f2f4f6]">
-                      <span className="text-[11px] text-[#57657b] font-medium">预计总额</span>
-                      <span className="text-base font-black text-[#008ebf]">{record.totalAmount.toLocaleString()} 万元</span>
-                    </div>
-                  </motion.div>
-                ))}
+              <div className="flex items-center justify-between px-1">
+                <h3 className="font-bold text-sm text-[#191c1e]">历史计算记录</h3>
+                <span className="text-[10px] bg-[#d5e3fd] text-[#57657b] px-2 py-0.5 rounded-full font-bold">
+                  共 {filteredHistory.length} 条
+                </span>
               </div>
+
+              {filteredHistory.length === 0 ? (
+                <div className="bg-white border border-[#c6c6cd]/60 rounded-lg py-12 px-6 text-center shadow-sm">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-[#f2f4f6] flex items-center justify-center">
+                    <History className="w-5 h-5 text-[#a1a1aa]" />
+                  </div>
+                  <p className="text-sm font-bold text-[#45464d] mb-1">
+                    {history.length === 0 ? '暂无测算记录' : '没有符合条件的记录'}
+                  </p>
+                  <p className="text-[11px] text-[#76777d] mb-4">
+                    {history.length === 0
+                      ? '在「计算器」完成一次测算后，结果会自动出现在这里'
+                      : '试试其他关键词或切换筛选条件'}
+                  </p>
+                  {history.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('calculator')}
+                      className="px-5 py-2.5 bg-[#007AFF] text-white rounded-xl text-xs font-bold hover:bg-[#0052b3] transition-all active:scale-95 inline-flex items-center gap-1.5"
+                    >
+                      前往计算器
+                      <ArrowRight className="w-3.5 h-3.5 text-white" />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {filteredHistory.map((record) => {
+                    const meta = HISTORY_MODULE_META[record.module];
+                    return (
+                      <motion.div
+                        key={record.id}
+                        whileHover={{ scale: 1.01 }}
+                        onClick={() => {
+                          setHistoryDetail(record);
+                          setHistoryCopied(false);
+                        }}
+                        className="bg-white border border-[#c6c6cd]/60 rounded-lg p-3 shadow-sm hover:border-[#008ebf] transition-all cursor-pointer group relative overflow-hidden"
+                      >
+                        <span
+                          className="absolute left-0 top-0 bottom-0 w-1"
+                          style={{ backgroundColor: meta.color }}
+                        />
+                        <div className="flex justify-between items-start mb-2">
+                          <div
+                            className="p-2 rounded-md"
+                            style={{ backgroundColor: `${meta.color}1a`, color: meta.color }}
+                          >
+                            <LayoutDashboard className="w-4 h-4" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeHistoryRecord(record.id);
+                              }}
+                              className="p-1.5 text-[#76777d] hover:text-[#ba1a1a] hover:bg-[#ffdad6] rounded-md transition-all"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <ChevronRight className="w-4 h-4 text-[#c6c6cd]" />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span
+                            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                            style={{ backgroundColor: `${meta.color}1a`, color: meta.color }}
+                          >
+                            {meta.name}
+                          </span>
+                          <span className="text-[9px] text-[#76777d] truncate">{record.province}</span>
+                        </div>
+                        <h4 className="font-bold text-sm mb-0.5 truncate" title={record.title}>
+                          {record.title}
+                        </h4>
+                        <p className="text-[11px] text-[#76777d] mb-2 truncate" title={record.subtitle}>
+                          {record.subtitle}
+                        </p>
+                        <p className="text-[10px] text-[#a1a1aa] mb-2">{fmtHistoryTime(record.createdAt)}</p>
+                        <div className="flex items-end justify-between pt-2 border-t border-[#f2f4f6]">
+                          <span className="text-[11px] text-[#57657b] font-medium">总费用</span>
+                          <span className="text-base font-black" style={{ color: meta.color }}>
+                            ¥{record.totalYuan.toLocaleString()}
+                          </span>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 撤销删除提示 */}
+              <AnimatePresence>
+                {historyUndo && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    className="fixed left-1/2 -translate-x-1/2 bottom-24 z-[120] bg-[#0F172A] text-white rounded-xl px-4 py-3 shadow-2xl flex items-center gap-4 max-w-[90vw]"
+                  >
+                    <span className="text-[11px] font-bold truncate">已删除 1 条记录</span>
+                    <button
+                      type="button"
+                      onClick={undoRemoveHistory}
+                      className="text-[11px] font-bold text-[#7db8ff] hover:underline shrink-0"
+                    >
+                      撤销
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* 清空确认 */}
+              <AnimatePresence>
+                {showClearHistoryConfirm && (
+                  <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[130] flex items-center justify-center p-4">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+                    >
+                      <div className="p-5 border-b border-[#eceef0]">
+                        <h3 className="text-base font-bold text-[#0F172A]">清空全部历史记录？</h3>
+                        <p className="text-[11px] text-[#76777d] mt-1">
+                          将删除本机保存的全部 {history.length} 条测算记录，该操作不可撤销。
+                        </p>
+                      </div>
+                      <div className="p-4 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowClearHistoryConfirm(false)}
+                          className="flex-1 py-2.5 border border-[#c6c6cd] rounded-xl text-xs font-bold text-[#45464d] hover:bg-[#f2f4f6] transition-all"
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHistory([]);
+                            setShowClearHistoryConfirm(false);
+                            setHistoryDetail(null);
+                          }}
+                          className="flex-1 py-2.5 bg-[#ba1a1a] rounded-xl text-xs font-bold text-white hover:bg-[#961515] transition-all"
+                        >
+                          确认清空
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+              </AnimatePresence>
+
+              {/* 报告详情浮层 */}
+              <AnimatePresence>
+                {historyDetail && (
+                  <div
+                    className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[140] flex items-center justify-center p-3"
+                    onClick={() => setHistoryDetail(null)}
+                  >
+                    <motion.div
+                      initial={{ opacity: 0, y: 30, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 30, scale: 0.97 }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden"
+                    >
+                      <div className="p-4 border-b border-[#eceef0] flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="text-sm font-bold text-[#0F172A] truncate">
+                            {HISTORY_MODULE_META[historyDetail.module].name}测算报告
+                          </h3>
+                          <p className="text-[10px] text-[#76777d] truncate">
+                            {historyDetail.province} · {fmtHistoryTime(historyDetail.createdAt)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={copyHistoryReport}
+                            className="px-3 py-1.5 border border-[#c6c6cd] rounded-lg text-[10px] font-bold text-[#45464d] hover:bg-[#f2f4f6] transition-all"
+                          >
+                            {historyCopied ? '已复制' : '复制'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeHistoryRecord(historyDetail.id)}
+                            className="px-3 py-1.5 border border-[#ba1a1a] rounded-lg text-[10px] font-bold text-[#ba1a1a] hover:bg-red-50 transition-all"
+                          >
+                            删除
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHistoryDetail(null)}
+                            className="p-1.5 hover:bg-[#eceef0] rounded-full text-[#76777d] transition-all"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="px-4 py-3 bg-[#f7f9fb] border-b border-[#eceef0]">
+                        <span className="text-[10px] text-[#76777d]">项目总费用　</span>
+                        <span className="text-lg font-black text-[#007AFF]">
+                          ¥{historyDetail.totalYuan.toLocaleString()} 元
+                        </span>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-4">
+                        <pre className="text-xs font-mono bg-[#f7f9fb] p-4 rounded-2xl whitespace-pre-wrap leading-relaxed text-[#45464d] text-left">
+                          {historyDetail.reportText}
+                        </pre>
+                      </div>
+                      <div className="p-4 border-t border-[#eceef0] flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => restoreHistoryRecord(historyDetail)}
+                          className="flex-1 py-3 bg-[#007AFF] text-white rounded-xl text-xs font-bold hover:bg-[#0052b3] transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 text-white" />
+                          重新测算
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryDetail(null)}
+                          className="px-6 py-3 border border-[#c6c6cd] rounded-xl text-xs font-bold text-[#45464d] hover:bg-[#f2f4f6] transition-all"
+                        >
+                          关闭
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+              </AnimatePresence>
             </motion.div>
           )}
 
@@ -4812,114 +5370,75 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
               initial="hidden"
               animate="visible"
               exit="exit"
-              className="space-y-6"
+              className="flex flex-col min-h-[calc(100vh-9rem)]"
             >
-              <AnimatePresence mode="wait">
-                {!showAccountSettings ? (
-                  <motion.div
-                    key="profile-home"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="space-y-6"
-                  >
-                    <section 
-                      onClick={() => setShowAccountSettings(true)}
-                      className="bg-white border border-[#c6c6cd] rounded-xl p-6 flex items-center gap-5 shadow-sm hover:border-[#008ebf] transition-all cursor-pointer group"
-                    >
-                      <div className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-[#0F172A] group-hover:scale-105 transition-transform">
-                        <img 
-                          src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQHSgF-Wilr4FO21cxp9ZlFRIiaw1BXJ327IssFEx6aECRJsJytK-fL-RjbjFjz0mjYVYNqF4DmnN8EN10ROcT15C231hvsvibyyy-w9qv3OK4RSx5HfJQfOO5i0v6wSKb5E7UVU-NXpSdRn4cqLHBFmiphrCbPIaO-B2F87hF1ICluJjSyal77ZEpxw_vBM5_CgcIdwPfYUApi8pgMHoxU4M5kkqDUovm436iD-cxKYKy_eBDZZcu62yM2xnNAd1pWuuUFJm29Lg" 
-                          alt="Profile" 
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-xl font-bold">工程造价师</h2>
-                          <span className="bg-[#d5e3fd] text-[#57657b] text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">Pro</span>
+              {/* 顶部程序名称 */}
+              <h1 className="text-center text-lg font-black tracking-tight text-[#0F172A] pt-4 pb-8">
+                工程造价计算器
+              </h1>
+
+              <div className="space-y-6 flex-1 flex flex-col">
+                    <div className="flex-1 flex items-end justify-center pb-16">
+                    {/* 默认省份设置 */}
+                    <section className="w-full bg-white border border-[#c6c6cd] rounded-xl overflow-hidden shadow-sm">
+                      <div className="p-4 bg-[#f2f4f6] border-b border-[#c6c6cd] flex items-center justify-between">
+                        <h3 className="text-sm font-bold flex items-center gap-2">
+                          <MapPin className="w-4 h-4" />
+                          默认省份设置
+                        </h3>
+                        <div className="flex items-center gap-3">
+                          <AnimatePresence>
+                            {defaultProvinceSaved && (
+                              <motion.span
+                                initial={{ opacity: 0, x: 6 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: 6 }}
+                                className="text-[10px] font-bold text-[#34C759]"
+                              >
+                                已保存
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
+                          <button
+                            type="button"
+                            onClick={resetDefaultProvinces}
+                            className="text-[10px] font-bold text-[#007AFF] hover:underline flex items-center gap-1"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            恢复默认
+                          </button>
                         </div>
-                        <p className="text-sm text-[#45464d] flex items-center gap-1 mt-1">
-                          <CheckCircle2 className="w-4 h-4" />
-                          执业证书编号: CE-2023089412
-                        </p>
                       </div>
-                      <div className="flex flex-col items-center">
-                        <ChevronRight className="w-5 h-5 text-[#c6c6cd] group-hover:text-[#008ebf] transition-colors" />
-                        <span className="text-[10px] text-[#c6c6cd] mt-0.5">账号设置</span>
+                      <div className="p-4 space-y-3">
+                        <p className="text-[10px] text-[#76777d] leading-relaxed">
+                          设置「计算器」各模块打开时默认选中的省份（下次进入计算器生效）。
+                        </p>
+                        {([
+                          {
+                            key: 'design' as const,
+                            label: '工程设计费',
+                            options: ['全国', ...DESIGN_PROVINCE_NAMES, ...customDesignProvinces.map((p) => p.name)],
+                          },
+                          { key: 'feasibility' as const, label: '工程可研费', options: [...FEASIBILITY_PROVINCES] },
+                          { key: 'supervision' as const, label: '工程监理费', options: [...SUPERVISION_PROVINCES] },
+                          { key: 'consulting' as const, label: '造价咨询费', options: [...['湖南省', '浙江省', '贵州省'], ...customProvinces.map((p) => p.name)] },
+                        ]).map((row) => (
+                          <div key={row.key} className="flex items-center justify-between gap-3">
+                            <span className="text-[11px] font-bold text-[#45464d] shrink-0">{row.label}</span>
+                            <select
+                              value={row.options.includes(defaultProvinces[row.key]) ? defaultProvinces[row.key] : row.options[0]}
+                              onChange={(e) => updateDefaultProvince(row.key, e.target.value)}
+                              className="flex-1 min-w-0 border border-[#c6c6cd] bg-white px-3 py-2 text-[11px] rounded-xl outline-none focus:border-[#007AFF] text-[#0F172A] font-semibold"
+                            >
+                              {row.options.map((opt) => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
                       </div>
                     </section>
-
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                      {/* Calculation Preferences */}
-                      <div className="md:col-span-12 bg-white border border-[#c6c6cd] rounded-xl overflow-hidden shadow-sm">
-                        <div className="p-4 bg-[#f2f4f6] border-b border-[#c6c6cd] flex items-center justify-between">
-                    <h3 className="text-sm font-bold flex items-center gap-2">
-                      <Settings2 className="w-4 h-4" />
-                      计算偏好
-                    </h3>
-                    
-                    <div className="relative dropdown-container">
-                      <div 
-                        onClick={() => setShowGlobalDropdown(!showGlobalDropdown)}
-                        className="flex items-center gap-1.5 border border-[#c6c6cd]/60 rounded-md px-2 py-1 bg-white cursor-pointer hover:border-[#008ebf] transition-all shadow-sm"
-                      >
-                        <span className="text-[10px] text-[#45464d] font-bold">
-                          {displayStandard}
-                        </span>
-                        <ChevronDown className="w-3 h-3 text-[#76777d]" />
-                      </div>
-                      
-                      <AnimatePresence>
-                        {showGlobalDropdown && (
-                          <motion.div 
-                            initial={{ opacity: 0, scale: 0.95, y: 5 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                            className="absolute right-0 top-full mt-2 w-44 bg-white border border-[#c6c6cd] rounded-xl shadow-2xl z-[60] overflow-hidden"
-                          >
-                            {globalPresets.map((preset) => (
-                              <div 
-                                key={preset}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  applyPreset(preset);
-                                  setShowGlobalDropdown(false);
-                                }}
-                                className={`px-4 py-2.5 text-[11px] hover:bg-[#f2f4f6] cursor-pointer transition-colors border-b border-[#eceef0] font-bold flex items-center justify-between gap-2 group ${selectedGlobalPreset === preset && !isCustom ? 'text-[#008ebf]' : 'text-[#45464d]'}`}
-                              >
-                                <div className="flex items-center gap-2 truncate">
-                                  {selectedGlobalPreset === preset && !isCustom && <CheckCircle2 className="w-3 h-3 shrink-0" />}
-                                  <span className="truncate">{preset}</span>
-                                </div>
-                                {preset !== '默认偏好' && (
-                                  <Trash2 
-                                    className="w-3 h-3 text-[#76777d]/0 group-hover:text-[#ba1a1a] transition-all hover:scale-110 shrink-0" 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      deletePreset(preset);
-                                    }}
-                                  />
-                                )}
-                              </div>
-                            ))}
-                            <div 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowGlobalDropdown(false);
-                                setShowSavePresetModal(true);
-                              }}
-                              className="px-4 py-3 text-[11px] hover:bg-[#f2f4f6] cursor-pointer transition-colors font-bold flex items-center gap-2 text-[#007AFF]"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              保存为新偏好
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
                     </div>
-                  </div>
 
                   {/* 新增自定义省份 Modal */}
                   <AnimatePresence>
@@ -5251,315 +5770,8 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                     )}
                   </AnimatePresence>
 
-                  {/* 新增自定义省份（工程设计费）Modal 已移至「工程设计费」向导（步骤 1） */}
-
-                  {/* Save Preset Dialog */}
-                  <AnimatePresence>
-                    {showSavePresetModal && (
-                      <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[100] flex items-center justify-center p-4">
-                        <motion.div 
-                          initial={{ opacity: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.9 }}
-                          className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
-                        >
-                          <div className="p-5 border-b border-[#eceef0]">
-                            <h3 className="text-lg font-bold text-[#191c1e]">保存自定义标准偏好</h3>
-                            <p className="text-xs text-[#76777d] mt-1">为当前调整好的计算偏好命名，以便日后直接调用</p>
-                          </div>
-                          <div className="p-5 space-y-4">
-                            <div className="space-y-1.5 focus-within:ring-1 focus-within:ring-[#007AFF]">
-                              <input 
-                                autoFocus
-                                type="text"
-                                placeholder="如：XX项目偏好"
-                                value={newPresetName}
-                                onChange={(e) => {
-                                  setNewPresetName(e.target.value);
-                                  setShowOverwriteWarning(false);
-                                }}
-                                className="w-full px-4 py-3 bg-[#f2f4f6] rounded-xl outline-none text-sm font-medium border border-transparent focus:border-[#008ebf] transition-all"
-                              />
-                            </div>
-
-                            {showOverwriteWarning && (
-                              <div className="mx-5 p-3 rounded-lg bg-[#ba1a1a]/5 border border-[#ba1a1a]/20">
-                                <p className="text-[11px] text-[#ba1a1a] font-bold leading-relaxed">
-                                  偏好“{newPresetName.trim()}”已存在，是否确认覆盖该偏好的所有配置数值？
-                                </p>
-                              </div>
-                            )}
-
-                            <div className="flex gap-3 pt-2">
-                              <button 
-                                onClick={() => {
-                                  setShowSavePresetModal(false);
-                                  setShowOverwriteWarning(false);
-                                }}
-                                className="flex-1 py-3 rounded-xl bg-[#f2f4f6] text-[#45464d] text-sm font-bold active:scale-[0.98] transition-all"
-                              >
-                                取消
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  const nameToSave = newPresetName.trim();
-                                  if (!nameToSave) return;
-                                  
-                                  const isDuplicate = globalPresets.includes(nameToSave);
-                                  
-                                  // If it's a duplicate and user hasn't seen/confirmed the warning yet
-                                  if (isDuplicate && !showOverwriteWarning) {
-                                    setShowOverwriteWarning(true);
-                                    return;
-                                  }
-
-                                  const config = {
-                                    factor: industryFactor,
-                                    factorStd: factorStd,
-                                    designStd: designStandard,
-                                    phases: { ...phases },
-                                    feasibilityStd: feasibilityStd,
-                                    supervisionStd: supervisionStd,
-                                    consultingStd: consultingStd
-                                  };
-                                  
-                                  // Update data
-                                  setPresetsData(prev => ({ ...prev, [nameToSave]: config }));
-                                  
-                                  // Add to list if new
-                                  if (!isDuplicate) {
-                                    setGlobalPresets(prev => [...prev, nameToSave]);
-                                  }
-                                  
-                                  // Set as active
-                                  setSelectedGlobalPreset(nameToSave);
-                                  
-                                  // Close modal and reset warning
-                                  setShowSavePresetModal(false);
-                                  setShowOverwriteWarning(false);
-                                  setNewPresetName('');
-                                  
-                                  // Show success message with a small delay
-                                  setTimeout(() => {
-                                    alert(`已成功保存并启用偏好：“${nameToSave}”`);
-                                  }, 100);
-                                }}
-                                disabled={!newPresetName.trim()}
-                                className={`flex-1 py-3 rounded-xl text-white text-sm font-bold active:scale-[0.98] transition-all disabled:opacity-50 ${
-                                  showOverwriteWarning ? 'bg-[#ba1a1a]' : 'bg-[#0F172A]'
-                                }`}
-                              >
-                                {showOverwriteWarning ? '确认覆盖' : '确认保存'}
-                              </button>
-                            </div>
-                          </div>
-                        </motion.div>
-                      </div>
-                    )}
-                  </AnimatePresence>
-                  
-                  <div className="divide-y divide-[#eceef0]">
-                    <FeeSection 
-                      icon={Percent} 
-                      title="默认调整系数" 
-                      isOpen={expandedPref === 'factor'}
-                      onToggle={() => setExpandedPref(expandedPref === 'factor' ? null : 'factor')}
-                      onSelect={(opt: string) => {
-                        setFactorStd(opt);
-                        if (opt === '湖南省标准') {
-                          setIndustryFactor(1.05);
-                        }
-                      }}
-                      defaultVal={factorStd}
-                      customContent={(currentSelected: string) => (
-                        <div className="pt-2 px-1">
-                          <div className={`p-4 rounded-xl border flex justify-between items-center shadow-sm transition-all ${
-                            currentSelected === '自定义标准' ? 'bg-white border-[#eceef0]' : 'bg-[#f2f4f6]/50 border-transparent opacity-80'
-                          }`}>
-                            <span className="text-sm font-medium text-[#45464d]">当前系数数值</span>
-                            <div className="flex items-center">
-                              <input 
-                                type="number"
-                                step="0.01"
-                                readOnly={currentSelected !== '自定义标准'}
-                                value={industryFactor}
-                                onChange={(e) => {
-                                  const val = parseFloat(e.target.value) || 0;
-                                  setIndustryFactor(val);
-                                  setFactorStd('自定义标准');
-                                }}
-                                className={`text-base font-black bg-transparent text-right outline-none w-20 transition-all ${
-                                  currentSelected === '自定义标准' ? 'text-[#007AFF] cursor-text' : 'text-[#76777d] cursor-default'
-                                }`}
-                              />
-                            </div>
-                          </div>
-                          {currentSelected !== '自定义标准' && (
-                            <p className="text-[9px] text-[#76777d] mt-3 ml-1">切换至“自定义标准”以修改数值</p>
-                          )}
-                        </div>
-                      )}
-                      items={[]}
-                    />
-
-                    <FeeSection 
-                      icon={BookOpen} 
-                      title="工程设计费规范" 
-                      isOpen={expandedPref === 'design'}
-                      onToggle={() => setExpandedPref(expandedPref === 'design' ? null : 'design')}
-                      onSelect={(opt: string) => setDesignStandard(opt)}
-                      defaultVal={designStandard} 
-                      customContent={(currentSelected: string) => {
-                        const designItems = [
-                          {
-                            name: '全国（计价格〔2002〕10号） · 工程设计收费基价（万元）',
-                            rates: DESIGN_NAT_PRICES.map((v) => String(v)),
-                            axis: DESIGN_NAT_AXIS.map((v) => String(v)),
-                            labels: ['收费基价 (万元)', '计费额 (万元)'],
-                          },
-                          ...customDesignProvinces.map((p) => ({
-                            name: `${p.name}（自定义 × ${p.multiplier}，封顶 ${p.capRate}%）· 工程设计收费基价（万元）`,
-                            rates: (p.prices && p.prices.length ? p.prices : DESIGN_NAT_PRICES.map((v) => Math.round(v * p.multiplier * 10000) / 10000)).map((v) => String(v)),
-                            axis: DESIGN_NAT_AXIS.map((v) => String(v)),
-                            labels: ['收费基价 (万元)', '计费额 (万元)'],
-                          })),
-                        ];
-                        return (
-                          <div className="pt-2 px-1">
-                            <div className="space-y-6">
-                              {designItems.map((item, idx) => (
-                                <FeeItem 
-                                  key={idx} 
-                                  item={item} 
-                                  index={idx} 
-                                  isEditable={currentSelected === '自定义标准'} 
-                                />
-                              ))}
-                            </div>
-
-                            <div className="mt-8 border-t border-[#eceef0]/60 pt-4">
-                              <div className="flex justify-between items-center mb-3">
-                                <span className="text-xs font-bold text-[#191c1e]">2. 阶段分配比例</span>
-                              </div>
-                              
-                              <div className="flex h-5 w-full rounded-full overflow-hidden mb-4 border border-[#eceef0]/30 shadow-sm">
-                                <div className="h-full bg-[#008ebf] flex items-center justify-center text-[9px] text-white font-bold transition-all duration-300" style={{ width: `${phases.p1}%` }}>
-                                  <span 
-                                    contentEditable={currentSelected === '自定义标准'}
-                                    suppressContentEditableWarning
-                                    onBlur={(e) => {
-                                      const val = parseInt(e.currentTarget.textContent || '0');
-                                      setPhases(prev => ({ ...prev, p1: val }));
-                                      setDesignStandard('自定义标准');
-                                    }}
-                                    className={currentSelected === '自定义标准' ? "px-1 bg-white/20 rounded cursor-text" : ""}
-                                  >
-                                    {phases.p1}
-                                  </span>%
-                                </div>
-                                <div className="h-full bg-[#0F172A] flex items-center justify-center text-[9px] text-white font-bold transition-all duration-300" style={{ width: `${phases.p2}%` }}>
-                                  <span 
-                                    contentEditable={currentSelected === '自定义标准'}
-                                    suppressContentEditableWarning
-                                    onBlur={(e) => {
-                                      const val = parseInt(e.currentTarget.textContent || '0');
-                                      setPhases(prev => ({ ...prev, p2: val }));
-                                      setDesignStandard('自定义标准');
-                                    }}
-                                    className={currentSelected === '自定义标准' ? "px-1 bg-white/20 rounded cursor-text" : ""}
-                                  >
-                                    {phases.p2}
-                                  </span>%
-                                </div>
-                                <div className="h-full bg-[#515f74] flex items-center justify-center text-[9px] text-white font-bold transition-all duration-300" style={{ width: `${phases.p3}%` }}>
-                                  <span 
-                                    contentEditable={currentSelected === '自定义标准'}
-                                    suppressContentEditableWarning
-                                    onBlur={(e) => {
-                                      const val = parseInt(e.currentTarget.textContent || '0');
-                                      setPhases(prev => ({ ...prev, p3: val }));
-                                      setDesignStandard('自定义标准');
-                                    }}
-                                    className={currentSelected === '自定义标准' ? "px-1 bg-white/20 rounded cursor-text" : ""}
-                                  >
-                                    {phases.p3}
-                                  </span>%
-                                </div>
-                              </div>
-                              
-                              <div className="grid grid-cols-3 gap-1">
-                                <div className="flex items-center gap-1.5">
-                                  <div className="w-2.5 h-2.5 rounded-full bg-[#008ebf]"></div>
-                                  <span className="text-xs text-[#45464d] font-medium">方案设计</span>
-                                </div>
-                                <div className="flex items-center gap-1.5 border-l border-[#eceef0] pl-4">
-                                  <div className="w-2.5 h-2.5 rounded-full bg-[#0F172A]"></div>
-                                  <span className="text-xs text-[#45464d] font-medium">初步设计</span>
-                                </div>
-                                <div className="flex items-center gap-1.5 border-l border-[#eceef0] pl-4">
-                                  <div className="w-2.5 h-2.5 rounded-full bg-[#515f74]"></div>
-                                  <span className="text-xs text-[#45464d] font-medium">施工图</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {currentSelected === '自定义标准' && (
-                              <p className="text-[9px] text-[#007AFF] mt-6 italic">* 点击阶段百分比或横轴数值可直接修改</p>
-                            )}
-                          </div>
-                        );
-                      }}
-                      items={[]}
-                    />
-
-                    <FeeSection 
-                      icon={BarChart3} 
-                      title="工程可研费规范" 
-                      isOpen={expandedPref === 'ke-yan'}
-                      onToggle={() => setExpandedPref(expandedPref === 'ke-yan' ? null : 'ke-yan')}
-                      onSelect={(opt: string) => setFeasibilityStd(opt)}
-                      defaultVal={feasibilityStd} 
-                      items={FEASIBILITY_PROVINCES.map((p) => {
-                        const std = FEASIBILITY_STANDARDS[p];
-                        const item = std.services.find((s) => s.key === 'report');
-                        return {
-                          name: `${std.name} · 编制可行性研究报告（万元）`,
-                          rates: (item?.brackets || []).map((b) => `${b.lo}-${b.hi}`),
-                          axis: std.tierLabels,
-                          labels: ['收费额 (万元)', '估算投资额 (万元)'],
-                        };
-                      })}
-                    />
-
-                    <FeeSection 
-                      icon={Eye} 
-                      title="工程监理费规范" 
-                      isOpen={expandedPref === 'jian-li'}
-                      onToggle={() => setExpandedPref(expandedPref === 'jian-li' ? null : 'jian-li')}
-                      onSelect={(opt: string) => setSupervisionStd(opt)}
-                      defaultVal={supervisionStd} 
-                      items={SUPERVISION_PROVINCES.map((p) => ({
-                        name: `${SUPERVISION_STANDARDS[p].name} · 监理服务费费率`,
-                        rates: SUPERVISION_STANDARDS[p].rates.map((r) => `${r}%`),
-                        axis: SUPERVISION_STANDARDS[p].axis.map(String),
-                        labels: ['费率 (%)', '计费额 (万元)'],
-                      }))}
-                    />
-
-                    <FeeSection 
-                      icon={Landmark} 
-                      title="造价咨询费规范" 
-                      isOpen={expandedPref === 'zhao-jia'}
-                      onToggle={() => setExpandedPref(expandedPref === 'zhao-jia' ? null : 'zhao-jia')}
-                      onSelect={(opt: string) => setConsultingStd(opt)}
-                      defaultVal={consultingStd} 
-                      items={CONSULTING_FEE_CONFIG}
-                    />
-                  </div>
-                </div>
-
                 {/* About Application */}
-                <div className="md:col-span-12 overflow-hidden flex flex-col">
+                <div className="overflow-hidden flex flex-col">
                   <div className="p-4 flex items-center justify-between text-center gap-2">
                     <button className="flex flex-col items-center gap-1 flex-1 hover:opacity-70 transition-opacity">
                       <RotateCcw className="w-4 h-4 text-[#76777d]" />
@@ -5580,108 +5792,9 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                   </div>
                 </div>
 
-                <div className="md:col-span-12">
-                  <button className="w-full bg-white border border-[#ba1a1a] rounded-xl p-4 flex items-center justify-center gap-2 hover:bg-red-50 transition-colors group">
-                    <LogOut className="w-4 h-4 text-[#ba1a1a]" />
-                    <span className="text-sm font-bold text-[#ba1a1a]">退出登录</span>
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          ) : (
-                  <motion.div
-                    key="account-settings"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className="space-y-4"
-                  >
-                    {/* Header with Back button */}
-                    <div className="flex items-center gap-3 mb-6">
-                      <button 
-                        onClick={() => setShowAccountSettings(false)}
-                        className="p-2 bg-white rounded-lg border border-[#c6c6cd]/60 hover:bg-[#f2f4f6] transition-colors shadow-sm"
-                      >
-                        <ArrowLeft className="w-4 h-4 text-[#45464d]" />
-                      </button>
-                      <h2 className="text-xl font-bold">账号设置</h2>
-                    </div>
-
-                    {/* Avatar Card */}
-                    <div className="bg-white border border-[#c6c6cd] rounded-xl p-8 flex flex-col items-center gap-5 shadow-sm relative overflow-hidden group">
-                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#008ebf] to-[#0F172A]"></div>
-                      <div className="relative">
-                        <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-[#f2f4f6] shadow-xl relative">
-                          <img 
-                            src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQHSgF-Wilr4FO21cxp9ZlFRIiaw1BXJ327IssFEx6aECRJsJytK-fL-RjbjFjz0mjYVYNqF4DmnN8EN10ROcT15C231hvsvibyyy-w9qv3OK4RSx5HfJQfOO5i0v6wSKb5E7UVU-NXpSdRn4cqLHBFmiphrCbPIaO-B2F87hF1ICluJjSyal77ZEpxw_vBM5_CgcIdwPfYUApi8pgMHoxU4M5kkqDUovm436iD-cxKYKy_eBDZZcu62yM2xnNAd1pWuuUFJm29Lg" 
-                            alt="Profile" 
-                            className="w-full h-full object-cover transition-transform group-hover:scale-110"
-                            referrerPolicy="no-referrer"
-                          />
-                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                            <ImageIcon className="w-6 h-6 text-white" />
-                          </div>
-                        </div>
-                        <div className="absolute -bottom-1 -right-1 p-2 bg-[#007AFF] rounded-full border-2 border-white shadow-lg text-white">
-                          <Settings2 className="w-3 h-3" />
-                        </div>
-                      </div>
-                      <div className="text-center">
-                        <h4 className="text-lg font-bold text-[#191c1e]">工程造价师</h4>
-                        <p className="text-xs text-[#76777d]">执业证书编号: CE-2023089412</p>
-                      </div>
-                      <button className="px-8 py-2.5 bg-[#0F172A] text-white rounded-xl text-xs font-bold hover:bg-[#1e293b] active:scale-[0.98] transition-all">
-                        更换头像
-                      </button>
-                    </div>
-
-                    {/* Security List */}
-                    <div className="bg-white border border-[#c6c6cd] rounded-xl overflow-hidden shadow-sm">
-                      <div className="p-4 bg-[#f2f4f6] border-b border-[#c6c6cd]">
-                        <h3 className="text-sm font-bold flex items-center gap-2">
-                          <Lock className="w-4 h-4" />
-                          账户与安全
-                        </h3>
-                      </div>
-                      <div className="divide-y divide-[#eceef0]">
-                        <button className="w-full px-5 py-4 flex items-center justify-between hover:bg-[#f2f4f6] transition-colors text-left group">
-                          <div>
-                            <p className="text-sm font-bold text-[#191c1e]">登录密码</p>
-                            <p className="text-[11px] text-[#76777d] mt-0.5">建议定期更换密码以保障安全</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-[#76777d]">已设置</span>
-                            <ChevronRight className="w-4 h-4 text-[#c6c6cd] group-hover:translate-x-1 transition-transform" />
-                          </div>
-                        </button>
-                        <button className="w-full px-5 py-4 flex items-center justify-between hover:bg-[#f2f4f6] transition-colors text-left group">
-                          <div>
-                            <p className="text-sm font-bold text-[#191c1e]">手机绑定</p>
-                            <p className="text-[11px] text-[#76777d] mt-0.5">138****8888</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-[#76777d]">已验证</span>
-                            <ChevronRight className="w-4 h-4 text-[#c6c6cd] group-hover:translate-x-1 transition-transform" />
-                          </div>
-                        </button>
-                        <button className="w-full px-5 py-4 flex items-center justify-between hover:bg-[#f2f4f6] transition-colors text-left group border-t border-[#eceef0]">
-                          <div>
-                            <p className="text-sm font-bold text-[#191c1e]">实名认证</p>
-                            <p className="text-[11px] text-[#76777d] mt-0.5">用于执业证书合法性验证</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-[#ba1a1a] font-bold">待完善</span>
-                            <ChevronRight className="w-4 h-4 text-[#c6c6cd] group-hover:translate-x-1 transition-transform" />
-                          </div>
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
               <div className="text-center pt-4 pb-8">
                 <p className="text-xs text-[#45464d]">© 2024 工程造价助手 - 专业工程管理系统</p>
+              </div>
               </div>
             </motion.div>
           )}
