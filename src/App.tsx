@@ -384,13 +384,13 @@ const BILLING_BASE_LABELS: Record<string, string> = {
 
 const CONSULTING_SINGLE_AXIS = [500, 2000, 5000, 10000, 50000]; // 万元为单位
 
-// 湖南省最低收费限额（出处：《湖南省建设工程造价咨询行业服务收费参考标准》）
+// 湖南省最低收费限额（出处：《湖南省建设工程造价咨询行业咨询服务收费参考价格表》）
 const HUNAN_MIN_SERVICE_FEE_YUAN = 3000;    // 工程造价咨询服务收费低于 3000 元的，按 3000 元收取
 const HUNAN_MIN_APPRAISAL_FEE_YUAN = 10000; // 工程造价鉴定收费不足 1 万元的，按 1 万元收取
 
 const WHOLE_PROCESS_AXIS = [5000, 10000, 50000, 100000]; // 万元为单位（对应 0.5 / 1 / 5 / 10 亿元）
 const WHOLE_PROCESS_RATES = {
-  // 七、全过程造价咨询服务收费参考标准（不含驻场人员收费价格），单位：‰
+  // 附表 6 全过程造价咨询服务收费参考价格表（不含驻场人员收费价格），单位：‰
   A: ['14.0', '12.0', '10.0', '9.0', '8.0'],   // A 型，决策阶段至竣工阶段
   B: ['13.0', '11.0', '9.0', '8.5', '7.5'],    // B 型，设计阶段至竣工阶段
   C: ['12.0', '9.5', '8.0', '7.5', '6.5'],     // C 型，交易阶段至竣工阶段
@@ -1460,7 +1460,7 @@ export default function App() {
 1. 服务类型：${consultingSpecificType}
 2. 计费基数 (${BILLING_BASE_LABELS[consultingSpecificType] || '计费基数'})：${validProjects.map(p => `${p.name || '未命名'} (${p.cost}万元)`).join('、')}
 3. 工程类别调整系数：${categoryFactor.toFixed(1)}（对应类型：${category.name}）
-4. 费率依据：湘价协收费价格表（千分比 ‰ 差额累进计算）
+4. 费率依据：《湖南省建设工程造价咨询行业咨询服务收费参考价格表》（千分比 ‰ 差额累进计算）
    ${consultingSpecificType} 阶梯费率：${permilleRates.map(formatNum).join('‰ / ')}‰
 ——————————————————
 计算过程说明：
@@ -1514,7 +1514,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
 1. 服务类型：${consultingSpecificType}
 2. 计费基数 (项目投资估算/概算金额)：${validProjects.map(p => `${p.name || '未命名'} (${p.cost}万元)`).join('、')}
 3. 工程类别调整系数：${categoryFactor.toFixed(1)}（对应类型：${category.name}）
-4. 费率依据：《湖南省建设工程造价咨询行业服务收费参考标准》第七部分「全过程造价咨询服务收费参考标准（不含驻场人员收费价格）」
+4. 费率依据：《湖南省建设工程造价咨询行业咨询服务收费参考价格表》附表 6「全过程造价咨询服务收费参考价格表（不含驻场人员收费价格）」
    ${packageType} 型（${stageLabel}）阶梯费率：${permilleRates.map(formatNum).join('‰ / ')}‰
 ——————————————————
 计算过程说明：
@@ -1573,7 +1573,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
 1. 服务类型：${consultingSpecificType}
 2. 计费基数 (项目建安造价)：${validProjects.map((p: any) => `${p.name || '未命名'} (${p.cost}万元)`).join('、')}
 3. 工程类别调整系数：${categoryFactor.toFixed(1)}（对应类型：${category.name}）
-4. 费率依据：湘价协附表10「全过程跟踪审计收费表」（千分比 ‰ 差额累进计算）
+4. 费率依据：《湖南省建设工程造价咨询行业咨询服务收费参考价格表》附表 10「建设项目全过程跟踪审计服务收费参考价格表（不含驻场人员收费价格）」（千分比 ‰ 差额累进计算）
    ${packageType} 型阶梯费率：${permilleRates.map(formatNum).join('‰ / ')}‰
 ——————————————————
 计算过程说明：
@@ -1634,7 +1634,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       const rateText = isOptimize ? '8.0%' : '5.0%';
       const rateDecimal = isOptimize ? 0.08 : 0.05;
       rateBasisLines = [
-        '浙江省建设工程造价咨询行业建议收费标准（按固定比例计取）',
+        '《浙江省建设工程造价咨询服务项目及收费指引》（按固定比例计取）',
         `${type} 计费费率：${rateText}`,
       ];
       validProjects.forEach((proj, idx) => {
@@ -1654,7 +1654,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
     } else {
       const percentRates = ZHEJIANG_RATES[type] || [0.13, 0.11, 0.09, 0.07, 0.06, 0.05, 0.04, 0.04];
       rateBasisLines = [
-        '浙江省建设工程造价咨询行业建议收费标准（百分比 % 差额累进计算）',
+        '《浙江省建设工程造价咨询服务项目及收费指引》（百分比 % 差额累进计算）',
         `${type} 阶梯费率：${percentRates.map(v => `${formatNum(v)}%`).join(' / ')}`,
       ];
       validProjects.forEach((proj, idx) => {
@@ -1805,7 +1805,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       const rateText = isReview ? '8.0%' : '6.0%';
       const rateDecimal = isReview ? 0.08 : 0.06;
       rateBasisLines = [
-        '贵州省发展改革委/住房城乡建设厅收费指导意见（按固定比例计取）',
+        '《贵州省建设工程造价咨询服务费参考标准》（按固定比例计取）',
         `${type} 计费费率：${rateText}`,
       ];
       validProjects.forEach((proj, idx) => {
@@ -1818,7 +1818,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       });
     } else if (isCourtFee) {
       rateBasisLines = [
-        '贵州省发展改革委/住房城乡建设厅收费指导意见（按出庭人次计取）',
+        '《贵州省建设工程造价咨询服务费参考标准》（按出庭人次计取）',
         `${type} 计费标准：3,000 元/人·次`,
       ];
       validProjects.forEach((proj, idx) => {
@@ -1837,7 +1837,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       const rawRates = GUIZHOU_RATES[type] || [1.3, 1.0, 0.7, 0.5, 0.4, 0.2];
       const divisor = RATE_UNITS[rateUnit].divisor;
       rateBasisLines = [
-        `贵州省发展改革委/住房城乡建设厅收费指导意见（${isAppraisal ? '百分比 %' : '千分比 ‰'}差额累进计算）`,
+        `《贵州省建设工程造价咨询服务费参考标准》（${isAppraisal ? '百分比 %' : '千分比 ‰'}差额累进计算）`,
         `${type} 阶梯费率：${rawRates.map(v => `${formatNum(v)}${RATE_UNITS[rateUnit].suffix}`).join(' / ')}`,
       ];
       validProjects.forEach((proj, idx) => {
@@ -1893,7 +1893,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       minAdjustmentLine: isAdjusted ? adjustmentMsg : undefined,
       footerLabel: '项目总咨询费用',
       totalYuan,
-      remark: '本测算已结合贵州省自律性指导标准约定的单次收费底线（普通项目 3,000 元，工程造价鉴定 5,000 元）完成限额校对。',
+      remark: '本测算已结合《贵州省建设工程造价咨询服务费参考标准》约定的单次收费底线（普通项目 3,000 元，工程造价鉴定 5,000 元）完成限额校对。',
     });
 
     commitConsultingResult(baseText, validProjects);
