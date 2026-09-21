@@ -149,6 +149,20 @@ const DEFAULT_PROVINCES_FALLBACK: DefaultProvinces = {
   design: '全国',
 };
 
+/**
+ * 后端服务不可用时的降级提示（只提示一次，避免每次测算都刷屏）
+ * 不影响功能：四个模块都会自动改用本机计算。
+ */
+let backendWarned = false;
+const warnBackendOnce = (err?: unknown) => {
+  if (backendWarned) return;
+  backendWarned = true;
+  console.info(
+    '[工程造价计算器] 后端服务未启动，已自动切换为本机计算模式。',
+    err instanceof Error ? err.message : err,
+  );
+};
+
 const loadDefaultProvinces = (): DefaultProvinces => {
   try {
     const raw = localStorage.getItem(DEFAULT_PROVINCES_KEY);
@@ -837,7 +851,7 @@ export default function App() {
         return;
       }
     } catch (err) {
-      console.warn('Supervision API unavailable, falling back to local computation:', err);
+      warnBackendOnce(err);
     }
 
     // 本地回退计算
@@ -977,7 +991,7 @@ export default function App() {
         return;
       }
     } catch (err) {
-      console.warn('Feasibility API unavailable, falling back to local computation:', err);
+      warnBackendOnce(err);
     }
 
     // 本地回退计算
@@ -1926,11 +1940,11 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       if (response.ok) {
         const data = await response.json();
         commitConsultingResult(data.reportText, validProjects);
-        console.log('Calculation computed successfully by the backend API.');
+        // 后端可用时无需提示（成功路径保持静默）
         return;
       }
     } catch (err) {
-      console.warn('Backend server calculation failed or unavailable, falling back to local computation:', err);
+      warnBackendOnce(err);
     }
 
     // Client-side fallback computation
@@ -2224,7 +2238,7 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
         return;
       }
     } catch (err) {
-      console.warn('Design API unavailable, falling back to local computation:', err);
+      warnBackendOnce(err);
     }
 
     // 本地回退计算
@@ -4750,336 +4764,6 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                     </section>
                     </div>
 
-                  {/* 新增自定义省份 Modal */}
-                  <AnimatePresence>
-                    {showAddProvinceModal && (
-                      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-                        <motion.div
-                          initial={{ opacity: 0, y: 30, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 30, scale: 0.95 }}
-                          className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[85vh] flex flex-col"
-                        >
-                          {/* 头部 */}
-                          <div className="p-6 border-b border-[#eceef0] flex justify-between items-center bg-gradient-to-r from-[#007AFF]/5 to-transparent">
-                            <div className="text-left">
-                              <h3 className="text-lg font-black text-[#0F172A] flex items-center gap-2">
-                                <PlusCircle className="w-5 h-5 text-[#007AFF]" />
-                                新建自定义省份计费标准
-                              </h3>
-                              <p className="text-xs text-[#76777d] mt-1">设置本省专属的细分咨询项目、收费基础及费率算法</p>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setShowAddProvinceModal(false);
-                                setConsultingProvince('');
-                              }}
-                              className="p-2 hover:bg-[#eceef0] rounded-full text-[#76777d] transition-all"
-                            >
-                              <X className="w-5 h-5" />
-                            </button>
-                          </div>
-
-                          {/* 滚动表单区 */}
-                          <div className="p-6 overflow-y-auto space-y-6 flex-1 text-left">
-                            {/* 1. 省份名称 */}
-                            <div className="space-y-2">
-                              <label className="block text-sm font-bold text-[#0F172A]">省份名称</label>
-                              <input
-                                type="text"
-                                placeholder="例如：广东省、四川省"
-                                value={newProvName}
-                                onChange={(e) => setNewProvName(e.target.value)}
-                                className="w-full px-4 py-3 bg-[#f2f4f6] rounded-xl outline-none text-sm font-semibold border border-transparent focus:border-[#007AFF] transition-all font-sans"
-                              />
-                            </div>
-
-                            {/* 2. 类别系数配置（所有省份统一包含「工程类别」步骤） */}
-                            <div className="space-y-3 bg-[#f7f9fb] p-4 rounded-2xl border border-[#eceef0] transition-all">
-                                <div className="flex justify-between items-center">
-                                  <h4 className="text-xs font-bold text-[#0F172A]">类别系数配置列表</h4>
-                                  <button
-                                    type="button"
-                                    onClick={() => setNewProvCategories([...newProvCategories, { name: '', factor: '1.0' }])}
-                                    className="text-xs font-bold text-[#007AFF] hover:underline flex items-center gap-1"
-                                  >
-                                    + 添加类别
-                                  </button>
-                                </div>
-                                <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1">
-                                  {newProvCategories.map((cat, idx) => (
-                                    <div key={idx} className="flex gap-3 items-center">
-                                      <input
-                                        type="text"
-                                        placeholder="如：装饰工程、古建工程"
-                                        value={cat.name}
-                                        onChange={(e) => {
-                                          const newList = [...newProvCategories];
-                                          newList[idx].name = e.target.value;
-                                          setNewProvCategories(newList);
-                                        }}
-                                        className="flex-1 px-3 py-2 bg-white border border-[#c6c6cd] rounded-xl text-xs outline-none focus:border-[#007AFF]"
-                                      />
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        placeholder="系数"
-                                        value={cat.factor}
-                                        onChange={(e) => {
-                                          const newList = [...newProvCategories];
-                                          newList[idx].factor = e.target.value;
-                                          setNewProvCategories(newList);
-                                        }}
-                                        className="w-20 px-3 py-2 bg-white border border-[#c6c6cd] rounded-xl text-xs text-center outline-none focus:border-[#007AFF]"
-                                      />
-                                      {newProvCategories.length > 1 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setNewProvCategories(newProvCategories.filter((_, i) => i !== idx))}
-                                          className="text-red-500 hover:text-red-700 text-xs font-bold"
-                                        >
-                                          删除
-                                        </button>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                            </div>
-
-                            {/* 3. 收费咨询项目列表 */}
-                            <div className="space-y-4">
-                              <div className="flex justify-between items-center">
-                                <label className="block text-sm font-bold text-[#0F172A]">细分咨询项目收费费率配置</label>
-                                <button
-                                  type="button"
-                                  onClick={() => setNewProvServices([...newProvServices, {
-                                    name: '',
-                                    billingBase: '',
-                                    rateType: 'progressive',
-                                    rateValue: '0.3',
-                                    progressiveRates: ['0.40', '0.35', '0.30', '0.22', '0.18', '0.12', '0.10', '0.10']
-                                  }])}
-                                  className="text-xs font-bold text-[#007AFF] hover:underline flex items-center gap-1"
-                                >
-                                  + 新增项目
-                                </button>
-                              </div>
-
-                              <div className="space-y-4">
-                                {newProvServices.map((service, idx) => (
-                                  <div key={idx} className="p-4 bg-[#f8fafc] border border-[#eceef0] rounded-2xl space-y-4 relative">
-                                    <div className="flex justify-between items-start gap-4">
-                                      <div className="flex-1 space-y-3">
-                                        <div className="grid grid-cols-2 gap-3">
-                                          <div className="space-y-1">
-                                            <span className="text-[11px] font-bold text-[#45464d]">咨询项目名称</span>
-                                            <input
-                                              type="text"
-                                              placeholder="如：控制价编制或审核"
-                                              value={service.name}
-                                              onChange={(e) => {
-                                                const newList = [...newProvServices];
-                                                newList[idx].name = e.target.value;
-                                                setNewProvServices(newList);
-                                              }}
-                                              className="w-full px-3 py-2 bg-white border border-[#c6c6cd] rounded-xl text-xs outline-none focus:border-[#007AFF]"
-                                            />
-                                          </div>
-                                          <div className="space-y-1">
-                                            <span className="text-[11px] font-bold text-[#45464d]">收费基数名称</span>
-                                            <input
-                                              type="text"
-                                              placeholder="如：控制价金额"
-                                              value={service.billingBase}
-                                              onChange={(e) => {
-                                                const newList = [...newProvServices];
-                                                newList[idx].billingBase = e.target.value;
-                                                setNewProvServices(newList);
-                                              }}
-                                              className="w-full px-3 py-2 bg-white border border-[#c6c6cd] rounded-xl text-xs outline-none focus:border-[#007AFF]"
-                                            />
-                                          </div>
-                                        </div>
-
-                                        <div className="flex gap-4 items-center">
-                                          <span className="text-[11px] font-bold text-[#45464d]">计费类型:</span>
-                                          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0F172A]">
-                                            <input
-                                              type="radio"
-                                              name={`rateType-${idx}`}
-                                              checked={service.rateType === 'progressive'}
-                                              onChange={() => {
-                                                const newList = [...newProvServices];
-                                                newList[idx].rateType = 'progressive';
-                                                setNewProvServices(newList);
-                                              }}
-                                              className="accent-[#007AFF]"
-                                            />
-                                            差额累进收费
-                                          </label>
-                                          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0F172A]">
-                                            <input
-                                              type="radio"
-                                              name={`rateType-${idx}`}
-                                              checked={service.rateType === 'percentage'}
-                                              onChange={() => {
-                                                const newList = [...newProvServices];
-                                                newList[idx].rateType = 'percentage';
-                                                setNewProvServices(newList);
-                                              }}
-                                              className="accent-[#007AFF]"
-                                            />
-                                            固定费率比例收费
-                                          </label>
-                                        </div>
-
-                                        {service.rateType === 'percentage' ? (
-                                          <div className="space-y-1">
-                                            <span className="text-[11px] font-bold text-[#45464d]">固定比例收费费率 (%)</span>
-                                            <div className="relative max-w-[150px]">
-                                              <input
-                                                type="number"
-                                                step="0.001"
-                                                placeholder="0.3"
-                                                value={service.rateValue}
-                                                onChange={(e) => {
-                                                  const newList = [...newProvServices];
-                                                  newList[idx].rateValue = e.target.value;
-                                                  setNewProvServices(newList);
-                                                }}
-                                                className="w-full px-3 py-2 pr-6 bg-white border border-[#c6c6cd] rounded-xl text-xs outline-none focus:border-[#007AFF] font-semibold font-mono"
-                                              />
-                                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#76777d] font-bold">%</span>
-                                            </div>
-                                          </div>
-                                        ) : (
-                                          <div className="space-y-1.5">
-                                            <span className="text-[11px] font-bold text-[#45464d]">差额累进各区间收费费率 (%)</span>
-                                            <div className="grid grid-cols-4 gap-2">
-                                              {[
-                                                { label: '<100万', key: 0 },
-                                                { label: '100-500万', key: 1 },
-                                                { label: '500-1000万', key: 2 },
-                                                { label: '1000-2000万', key: 3 },
-                                                { label: '2000-5000万', key: 4 },
-                                                { label: '50-1亿', key: 5 },
-                                                { label: '1-5亿', key: 6 },
-                                                { label: '>5亿', key: 7 },
-                                              ].map((b) => (
-                                                <div key={b.key} className="space-y-1 text-center bg-white p-1.5 border border-[#eceef0] rounded-xl">
-                                                  <span className="text-[9px] font-bold text-[#76777d]">{b.label}</span>
-                                                  <div className="relative">
-                                                    <input
-                                                      type="number"
-                                                      step="0.001"
-                                                      value={service.progressiveRates[b.key] || ''}
-                                                      onChange={(e) => {
-                                                        const newList = [...newProvServices];
-                                                        newList[idx].progressiveRates[b.key] = e.target.value;
-                                                        setNewProvServices(newList);
-                                                      }}
-                                                      className="w-full px-1 py-1 text-center bg-[#f7f9fb] border border-transparent rounded-lg text-xs font-mono font-black"
-                                                    />
-                                                    <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[8px] text-[#76777d] font-bold">%</span>
-                                                  </div>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {newProvServices.length > 1 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setNewProvServices(newProvServices.filter((_, i) => i !== idx))}
-                                          className="text-red-500 hover:text-red-700 text-xs font-bold self-start mt-2"
-                                        >
-                                          删除
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* 底部按钮 */}
-                          <div className="p-6 border-t border-[#eceef0] bg-[#f8fafc] flex gap-4">
-                            <button
-                              onClick={() => {
-                                setShowAddProvinceModal(false);
-                                setConsultingProvince('');
-                              }}
-                              className="flex-1 py-3.5 rounded-xl bg-white border border-[#c6c6cd] text-[#45464d] text-xs font-black active:scale-[0.98] transition-all shadow-sm"
-                            >
-                              取消
-                            </button>
-                            <button
-                              onClick={() => {
-                                const name = newProvName.trim();
-                                if (!name) {
-                                  alert('请输入省份名称！');
-                                  return;
-                                }
-                                if (newProvServices.some(s => !s.name.trim())) {
-                                  alert('所有细分项目必须填写名称！');
-                                  return;
-                                }
-
-                                const parsedProvince: CustomProvince = {
-                                  name,
-                                  hasCategoryStep: true,
-                                  categories: newProvCategories.map(c => ({
-                                    name: c.name.trim() || '通用工程',
-                                    factor: parseFloat(c.factor) || 1.0
-                                  })),
-                                  services: newProvServices.map(s => ({
-                                    name: s.name.trim(),
-                                    billingBase: s.billingBase.trim() || '计费基数',
-                                    rateType: s.rateType,
-                                    rateValue: (parseFloat(s.rateValue) || 0) / 100, // stored as decimal
-                                    progressiveRates: s.progressiveRates.map(val => (parseFloat(val) || 0) / 100)
-                                  }))
-                                };
-
-                                const updated = [...customProvinces.filter(p => p.name !== name), parsedProvince];
-                                setCustomProvinces(updated);
-                                localStorage.setItem('cost_calculator_custom_provinces', JSON.stringify(updated));
-
-                                setConsultingProvince(name);
-                                setConsultingServiceType(null);
-                                setConsultingSpecificType('');
-                                setConsultingCategoryIndex(null);
-                                setShowConsultingResult(false);
-
-                                setShowAddProvinceModal(false);
-
-                                // reset forms
-                                setNewProvName('');
-                                setNewProvCategories([{ name: '通用工程', factor: '1.0' }]);
-                                setNewProvServices([{
-                                  name: '投资估算编制或审核',
-                                  billingBase: '估算价',
-                                  rateType: 'progressive',
-                                  rateValue: '0.35',
-                                  progressiveRates: ['0.40', '0.35', '0.30', '0.22', '0.18', '0.12', '0.10', '0.10']
-                                }]);
-
-                                // Advance to step 1
-                                setTimeout(() => navigateConsultingStep(1), 200);
-                              }}
-                              className="flex-1 py-3.5 rounded-xl bg-[#007AFF] text-white text-xs font-black active:scale-[0.98] transition-all shadow-md"
-                            >
-                              保存并选定该省份
-                            </button>
-                          </div>
-                        </motion.div>
-                      </div>
-                    )}
-                  </AnimatePresence>
-
                 {/* About Application */}
                 <div className="overflow-hidden flex flex-col">
                   <div className="p-4 flex items-center justify-between text-center gap-2">
@@ -5112,6 +4796,336 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       </main>
 
 
+
+      {/* 新增自定义省份 Modal */}
+      <AnimatePresence>
+        {showAddProvinceModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, y: 30, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 30, scale: 0.95 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[85vh] flex flex-col"
+            >
+              {/* 头部 */}
+              <div className="p-6 border-b border-[#eceef0] flex justify-between items-center bg-gradient-to-r from-[#007AFF]/5 to-transparent">
+                <div className="text-left">
+                  <h3 className="text-lg font-black text-[#0F172A] flex items-center gap-2">
+                    <PlusCircle className="w-5 h-5 text-[#007AFF]" />
+                    新建自定义省份计费标准
+                  </h3>
+                  <p className="text-xs text-[#76777d] mt-1">设置本省专属的细分咨询项目、收费基础及费率算法</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAddProvinceModal(false);
+                    setConsultingProvince('');
+                  }}
+                  className="p-2 hover:bg-[#eceef0] rounded-full text-[#76777d] transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* 滚动表单区 */}
+              <div className="p-6 overflow-y-auto space-y-6 flex-1 text-left">
+                {/* 1. 省份名称 */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-[#0F172A]">省份名称</label>
+                  <input
+                    type="text"
+                    placeholder="例如：广东省、四川省"
+                    value={newProvName}
+                    onChange={(e) => setNewProvName(e.target.value)}
+                    className="w-full px-4 py-3 bg-[#f2f4f6] rounded-xl outline-none text-sm font-semibold border border-transparent focus:border-[#007AFF] transition-all font-sans"
+                  />
+                </div>
+
+                {/* 2. 类别系数配置（所有省份统一包含「工程类别」步骤） */}
+                <div className="space-y-3 bg-[#f7f9fb] p-4 rounded-2xl border border-[#eceef0] transition-all">
+                    <div className="flex justify-between items-center">
+                      <h4 className="text-xs font-bold text-[#0F172A]">类别系数配置列表</h4>
+                      <button
+                        type="button"
+                        onClick={() => setNewProvCategories([...newProvCategories, { name: '', factor: '1.0' }])}
+                        className="text-xs font-bold text-[#007AFF] hover:underline flex items-center gap-1"
+                      >
+                        + 添加类别
+                      </button>
+                    </div>
+                    <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1">
+                      {newProvCategories.map((cat, idx) => (
+                        <div key={idx} className="flex gap-3 items-center">
+                          <input
+                            type="text"
+                            placeholder="如：装饰工程、古建工程"
+                            value={cat.name}
+                            onChange={(e) => {
+                              const newList = [...newProvCategories];
+                              newList[idx].name = e.target.value;
+                              setNewProvCategories(newList);
+                            }}
+                            className="flex-1 px-3 py-2 bg-white border border-[#c6c6cd] rounded-xl text-xs outline-none focus:border-[#007AFF]"
+                          />
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="系数"
+                            value={cat.factor}
+                            onChange={(e) => {
+                              const newList = [...newProvCategories];
+                              newList[idx].factor = e.target.value;
+                              setNewProvCategories(newList);
+                            }}
+                            className="w-20 px-3 py-2 bg-white border border-[#c6c6cd] rounded-xl text-xs text-center outline-none focus:border-[#007AFF]"
+                          />
+                          {newProvCategories.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setNewProvCategories(newProvCategories.filter((_, i) => i !== idx))}
+                              className="text-red-500 hover:text-red-700 text-xs font-bold"
+                            >
+                              删除
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                </div>
+
+                {/* 3. 收费咨询项目列表 */}
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-sm font-bold text-[#0F172A]">细分咨询项目收费费率配置</label>
+                    <button
+                      type="button"
+                      onClick={() => setNewProvServices([...newProvServices, {
+                        name: '',
+                        billingBase: '',
+                        rateType: 'progressive',
+                        rateValue: '0.3',
+                        progressiveRates: ['0.40', '0.35', '0.30', '0.22', '0.18', '0.12', '0.10', '0.10']
+                      }])}
+                      className="text-xs font-bold text-[#007AFF] hover:underline flex items-center gap-1"
+                    >
+                      + 新增项目
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {newProvServices.map((service, idx) => (
+                      <div key={idx} className="p-4 bg-[#f8fafc] border border-[#eceef0] rounded-2xl space-y-4 relative">
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="flex-1 space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <span className="text-[11px] font-bold text-[#45464d]">咨询项目名称</span>
+                                <input
+                                  type="text"
+                                  placeholder="如：控制价编制或审核"
+                                  value={service.name}
+                                  onChange={(e) => {
+                                    const newList = [...newProvServices];
+                                    newList[idx].name = e.target.value;
+                                    setNewProvServices(newList);
+                                  }}
+                                  className="w-full px-3 py-2 bg-white border border-[#c6c6cd] rounded-xl text-xs outline-none focus:border-[#007AFF]"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[11px] font-bold text-[#45464d]">收费基数名称</span>
+                                <input
+                                  type="text"
+                                  placeholder="如：控制价金额"
+                                  value={service.billingBase}
+                                  onChange={(e) => {
+                                    const newList = [...newProvServices];
+                                    newList[idx].billingBase = e.target.value;
+                                    setNewProvServices(newList);
+                                  }}
+                                  className="w-full px-3 py-2 bg-white border border-[#c6c6cd] rounded-xl text-xs outline-none focus:border-[#007AFF]"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex gap-4 items-center">
+                              <span className="text-[11px] font-bold text-[#45464d]">计费类型:</span>
+                              <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0F172A]">
+                                <input
+                                  type="radio"
+                                  name={`rateType-${idx}`}
+                                  checked={service.rateType === 'progressive'}
+                                  onChange={() => {
+                                    const newList = [...newProvServices];
+                                    newList[idx].rateType = 'progressive';
+                                    setNewProvServices(newList);
+                                  }}
+                                  className="accent-[#007AFF]"
+                                />
+                                差额累进收费
+                              </label>
+                              <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0F172A]">
+                                <input
+                                  type="radio"
+                                  name={`rateType-${idx}`}
+                                  checked={service.rateType === 'percentage'}
+                                  onChange={() => {
+                                    const newList = [...newProvServices];
+                                    newList[idx].rateType = 'percentage';
+                                    setNewProvServices(newList);
+                                  }}
+                                  className="accent-[#007AFF]"
+                                />
+                                固定费率比例收费
+                              </label>
+                            </div>
+
+                            {service.rateType === 'percentage' ? (
+                              <div className="space-y-1">
+                                <span className="text-[11px] font-bold text-[#45464d]">固定比例收费费率 (%)</span>
+                                <div className="relative max-w-[150px]">
+                                  <input
+                                    type="number"
+                                    step="0.001"
+                                    placeholder="0.3"
+                                    value={service.rateValue}
+                                    onChange={(e) => {
+                                      const newList = [...newProvServices];
+                                      newList[idx].rateValue = e.target.value;
+                                      setNewProvServices(newList);
+                                    }}
+                                    className="w-full px-3 py-2 pr-6 bg-white border border-[#c6c6cd] rounded-xl text-xs outline-none focus:border-[#007AFF] font-semibold font-mono"
+                                  />
+                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#76777d] font-bold">%</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-1.5">
+                                <span className="text-[11px] font-bold text-[#45464d]">差额累进各区间收费费率 (%)</span>
+                                <div className="grid grid-cols-4 gap-2">
+                                  {[
+                                    { label: '<100万', key: 0 },
+                                    { label: '100-500万', key: 1 },
+                                    { label: '500-1000万', key: 2 },
+                                    { label: '1000-2000万', key: 3 },
+                                    { label: '2000-5000万', key: 4 },
+                                    { label: '50-1亿', key: 5 },
+                                    { label: '1-5亿', key: 6 },
+                                    { label: '>5亿', key: 7 },
+                                  ].map((b) => (
+                                    <div key={b.key} className="space-y-1 text-center bg-white p-1.5 border border-[#eceef0] rounded-xl">
+                                      <span className="text-[9px] font-bold text-[#76777d]">{b.label}</span>
+                                      <div className="relative">
+                                        <input
+                                          type="number"
+                                          step="0.001"
+                                          value={service.progressiveRates[b.key] || ''}
+                                          onChange={(e) => {
+                                            const newList = [...newProvServices];
+                                            newList[idx].progressiveRates[b.key] = e.target.value;
+                                            setNewProvServices(newList);
+                                          }}
+                                          className="w-full px-1 py-1 text-center bg-[#f7f9fb] border border-transparent rounded-lg text-xs font-mono font-black"
+                                        />
+                                        <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[8px] text-[#76777d] font-bold">%</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {newProvServices.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setNewProvServices(newProvServices.filter((_, i) => i !== idx))}
+                              className="text-red-500 hover:text-red-700 text-xs font-bold self-start mt-2"
+                            >
+                              删除
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 底部按钮 */}
+              <div className="p-6 border-t border-[#eceef0] bg-[#f8fafc] flex gap-4">
+                <button
+                  onClick={() => {
+                    setShowAddProvinceModal(false);
+                    setConsultingProvince('');
+                  }}
+                  className="flex-1 py-3.5 rounded-xl bg-white border border-[#c6c6cd] text-[#45464d] text-xs font-black active:scale-[0.98] transition-all shadow-sm"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    const name = newProvName.trim();
+                    if (!name) {
+                      alert('请输入省份名称！');
+                      return;
+                    }
+                    if (newProvServices.some(s => !s.name.trim())) {
+                      alert('所有细分项目必须填写名称！');
+                      return;
+                    }
+
+                    const parsedProvince: CustomProvince = {
+                      name,
+                      hasCategoryStep: true,
+                      categories: newProvCategories.map(c => ({
+                        name: c.name.trim() || '通用工程',
+                        factor: parseFloat(c.factor) || 1.0
+                      })),
+                      services: newProvServices.map(s => ({
+                        name: s.name.trim(),
+                        billingBase: s.billingBase.trim() || '计费基数',
+                        rateType: s.rateType,
+                        rateValue: (parseFloat(s.rateValue) || 0) / 100, // stored as decimal
+                        progressiveRates: s.progressiveRates.map(val => (parseFloat(val) || 0) / 100)
+                      }))
+                    };
+
+                    const updated = [...customProvinces.filter(p => p.name !== name), parsedProvince];
+                    setCustomProvinces(updated);
+                    localStorage.setItem('cost_calculator_custom_provinces', JSON.stringify(updated));
+
+                    setConsultingProvince(name);
+                    setConsultingServiceType(null);
+                    setConsultingSpecificType('');
+                    setConsultingCategoryIndex(null);
+                    setShowConsultingResult(false);
+
+                    setShowAddProvinceModal(false);
+
+                    // reset forms
+                    setNewProvName('');
+                    setNewProvCategories([{ name: '通用工程', factor: '1.0' }]);
+                    setNewProvServices([{
+                      name: '投资估算编制或审核',
+                      billingBase: '估算价',
+                      rateType: 'progressive',
+                      rateValue: '0.35',
+                      progressiveRates: ['0.40', '0.35', '0.30', '0.22', '0.18', '0.12', '0.10', '0.10']
+                    }]);
+
+                    // Advance to step 1
+                    setTimeout(() => navigateConsultingStep(1), 200);
+                  }}
+                  className="flex-1 py-3.5 rounded-xl bg-[#007AFF] text-white text-xs font-black active:scale-[0.98] transition-all shadow-md"
+                >
+                  保存并选定该省份
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-[#f2f4f6] pb-5 pt-2 flex items-center justify-around z-50">
