@@ -39,7 +39,9 @@ import {
   RefreshCw,
   X
 } from 'lucide-react';
+import type * as React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import type { Variants } from 'motion/react';
 import { TabType, HistoryRecord, HistoryModule, DefaultProvinces } from './types';
 
 import {
@@ -2717,13 +2719,13 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
     setActiveTab('report');
   };
 
-  const containerVariants = {
+  const containerVariants: Variants = {
     hidden: { opacity: 0, y: 10 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
     exit: { opacity: 0, y: -10, transition: { duration: 0.2 } }
   };
 
-  const wizardVariants = {
+  const wizardVariants: Variants = {
     enter: (dir: number) => ({
       x: dir > 0 ? 150 : -150,
       opacity: 0
