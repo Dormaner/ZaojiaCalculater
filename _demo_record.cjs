@@ -16,6 +16,8 @@ const APP_URL = 'http://localhost:3000/';
 
 const DRY = process.env.DRY === '1';
 const SPEED = DRY ? 0.12 : 1;
+const PHASE = process.env.PHASE || '';
+const SNAP_DIR = PHASE ? path.join(__dirname, 'tmp_reports_' + PHASE) : '';
 const VW = 480;
 const VH = 1040;
 
@@ -348,6 +350,21 @@ async function main() {
     }
   };
 
+  /** 回归快照：把当前页面文本写入 tmp_reports_<phase>/，用于整理前后逐字比对 */
+  const snapshot = async (name) => {
+    if (!PHASE) return;
+    fs.mkdirSync(SNAP_DIR, { recursive: true });
+    const text = await page.evaluate(() => {
+      const m = document.querySelector('main') || document.body;
+      return (m.innerText || '')
+        .replace(/\r/g, '')
+        .replace(/[ \t]+/g, ' ')
+        .trim();
+    });
+    fs.writeFileSync(path.join(SNAP_DIR, name + '.txt'), text, 'utf8');
+    log(`  [SNAP] ${name} → ${text.length} 字`);
+  };
+
   /* ---------------- 打开应用并清空历史 ---------------- */
   log('打开应用…');
   await page.goto(APP_URL, { waitUntil: 'domcontentloaded' });
@@ -429,6 +446,7 @@ async function main() {
   await caption('步骤 5：生成测算报告', '系统逐条列出取费依据、档位定位与计算过程');
   await wait(2200);
   await scrollReport([0, 420, 900, 1500, 2100, 2600], 1500);
+  await snapshot('01_工程设计费');
 
   /* =============== 3. 工程可研费 =============== */
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
@@ -456,6 +474,7 @@ async function main() {
   await caption('步骤 5：测算报告（两项服务分别计算后合计）', '');
   await wait(2000);
   await scrollReport([0, 420, 900, 1500], 1400);
+  await snapshot('02_工程可研费');
 
   /* =============== 4. 工程监理费 =============== */
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
@@ -487,6 +506,7 @@ async function main() {
   await caption('步骤 5：测算报告（费率内插 + 附加调整 + 工作量折算）', '');
   await wait(2000);
   await scrollReport([0, 420, 900], 1400);
+  await snapshot('03_工程监理费');
 
   /* =============== 5. 造价咨询费 =============== */
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
@@ -516,6 +536,7 @@ async function main() {
   await caption('步骤 5：测算报告（差额累进分段明细）', '');
   await wait(2000);
   await scrollReport([0, 420, 900], 1400);
+  await snapshot('04_工程造价咨询费');
 
   /* =============== 6. 历史记录 =============== */
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
