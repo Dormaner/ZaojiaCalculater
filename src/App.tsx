@@ -66,8 +66,8 @@ import {
   DESIGN_PROVINCES,
   DESIGN_STEPS,
   DESIGN_CATEGORIES,
-  DESIGN_COMPLEXITY_TABLES,
-  DESIGN_CUSTOM_COMPLEXITY_REFS,
+  DESIGN_PHASE_ROWS,
+  getDesignPhaseRows,
   DESIGN_MODES,
   DESIGN_BILLING_BASE_LABEL,
   DESIGN_BILLING_BASE_HINT,
@@ -80,7 +80,7 @@ import {
   calculateDesign,
   type CustomDesignProvince,
   type DesignCategory,
-  type DesignComplexityRef,
+  type DesignPhaseRow,
   type DesignStandard,
 } from './data/designStandards';
 
@@ -1249,7 +1249,8 @@ export default function App() {
   const [designCategoryKey, setDesignCategoryKey] = useState<string>('cat-building');
   const [designProfessionCustom, setDesignProfessionCustom] = useState<string>('');
   const [designAmount, setDesignAmount] = useState<string>('');
-  const [designComplexityRefIndex, setDesignComplexityRefIndex] = useState<number>(0);
+  /** 表 7.2-1 选中的工程类型行（空串 = 按工程类别 + 复杂程度等级自动取默认行） */
+  const [designPhaseRowKey, setDesignPhaseRowKey] = useState<string>('');
   const [designComplexityKey, setDesignComplexityKey] = useState<string>('c2');
   const [designFactorFlags, setDesignFactorFlags] = useState<Record<string, boolean>>({});
   const [designFactorValues, setDesignFactorValues] = useState<Record<string, string>>({});
@@ -1259,7 +1260,6 @@ export default function App() {
   const [designOtherFeeRatios, setDesignOtherFeeRatios] = useState<Record<string, string>>({});
   const [designManualPhase, setDesignManualPhase] = useState<boolean>(false);
   const [designPhaseOverride, setDesignPhaseOverride] = useState<{ p1: string; p2: string; p3: string }>({ p1: '15', p2: '30', p3: '55' });
-  const [designShowComplexityTable, setDesignShowComplexityTable] = useState<boolean>(false);
   const [designResultText, setDesignResultText] = useState<string>('');
   const [showDesignResult, setShowDesignResult] = useState<boolean>(false);
   const [[designStep, designDirection], setDesignStep] = useState<[number, number]>([0, 0]);
@@ -2181,20 +2181,6 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
   const getDesignCategory = (): DesignCategory =>
     DESIGN_CATEGORIES.find((c) => c.key === designCategoryKey) || DESIGN_CATEGORIES[0];
 
-  /** 当前类别可选的复杂程度表（自定义类别时可选全部 4 张表） */
-  const getDesignComplexityRefs = (): DesignComplexityRef[] =>
-    designCategoryKey === CATEGORY_CUSTOM_VALUE
-      ? DESIGN_CUSTOM_COMPLEXITY_REFS
-      : getDesignCategory().complexityRefs;
-
-  const getDesignComplexityRef = (): DesignComplexityRef => {
-    const refs = getDesignComplexityRefs();
-    return refs[designComplexityRefIndex] || refs[0];
-  };
-
-  const getDesignComplexityTable = () =>
-    DESIGN_COMPLEXITY_TABLES[getDesignComplexityRef().table] || DESIGN_COMPLEXITY_TABLES.t731;
-
   const getDesignProfessionFactor = (): number => {
     if (designCategoryKey === CATEGORY_CUSTOM_VALUE) {
       const v = parseFloat(designProfessionCustom);
@@ -2215,36 +2201,50 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       .map((f) => f.billingNote as string)
       .join('；');
 
+  /** 可选的工程复杂程度等级（Ⅰ 0.85 / Ⅱ 1.00 / Ⅲ 1.15，与工程类别无关） */
+  const getDesignComplexityLevels = () => getDesignStandard().complexity;
+
   const getDesignComplexity = () => {
-    const table = getDesignComplexityTable();
-    return table.levels.find((l) => l.key === designComplexityKey) || table.levels[1] || table.levels[0];
+    const levels = getDesignComplexityLevels();
+    return levels.find((l) => l.key === designComplexityKey) || levels[1] || levels[0];
   };
 
-  /** 各阶段工作量比例：按「工程类别 + 复杂程度表 + 复杂程度等级」查表 7.2-1，可手工覆盖 */
+  /** 表 7.2-1 中与当前「工程类别 + 复杂程度等级」匹配的工程类型行 */
+  const getDesignPhaseRowOptions = (): DesignPhaseRow[] =>
+    getDesignPhaseRows(designCategoryKey, designComplexityKey);
+
+  /** 当前选中的表 7.2-1 行；未选或不再适用时回退到该类别的默认行 */
+  const getDesignPhaseRow = (): DesignPhaseRow => {
+    const options = getDesignPhaseRowOptions();
+    const selected = options.find((r) => r.key === designPhaseRowKey);
+    if (selected) return selected;
+    const defKey = (getDesignCategory().defaultPhaseKeys as Record<string, string | undefined>)[
+      designComplexityKey
+    ];
+    return options.find((r) => r.key === defKey) || options[0] || DESIGN_PHASE_ROWS[0];
+  };
+
+  /** 各阶段工作量比例：取表 7.2-1 选中行，可手工覆盖 */
   const getDesignPhase = (): { name: string; p1: number; p2: number; p3: number } => {
-    const cat = designCategoryKey === CATEGORY_CUSTOM_VALUE ? '自定义工程类别' : getDesignCategory().name;
-    const lvl = getDesignComplexity();
     if (designManualPhase) {
       return {
-        name: `${cat}（手工调整）`,
+        name: '手工调整',
         p1: parseFloat(designPhaseOverride.p1) || 0,
         p2: parseFloat(designPhaseOverride.p2) || 0,
         p3: parseFloat(designPhaseOverride.p3) || 0,
       };
     }
-    const byLevel = getDesignComplexityRef().phaseByLevel;
-    const t = byLevel[lvl.key as 'c1' | 'c2' | 'c3'] || byLevel.c2;
-    return { name: cat, p1: t[0], p2: t[1], p3: t[2] };
+    const row = getDesignPhaseRow();
+    return { name: row.name, p1: row.p1, p2: row.p2, p3: row.p3 };
   };
 
-  /** 切换工程类别：重置复杂程度表与修正系数，并恢复自动阶段比例 */
+  /** 切换工程类别：重置表 7.2-1 选行与修正系数，并恢复自动阶段比例 */
   const applyDesignCategory = (key: string) => {
     setDesignCategoryKey(key);
-    setDesignComplexityRefIndex(0);
+    setDesignPhaseRowKey('');
     setDesignFactorFlags({});
     setDesignFactorValues({});
     setDesignManualPhase(false);
-    setDesignShowComplexityTable(false);
     setShowDesignResult(false);
   };
 
@@ -2322,14 +2322,13 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
     applyDesignCategory('cat-building');
     setDesignProfessionCustom('');
     setDesignAmount('');
-    setDesignComplexityRefIndex(0);
+    setDesignPhaseRowKey('');
     setDesignComplexityKey('c2');
     setDesignModeKey('new');
     setDesignPartialAmend('60');
     setDesignOtherFeeFlags({});
     setDesignOtherFeeRatios({});
     setDesignManualPhase(false);
-    setDesignShowComplexityTable(false);
     setShowDesignResult(false);
     navigateDesignStep(0);
   };
@@ -2355,7 +2354,6 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       categoryName: getDesignCategoryName(),
       billingNote: getDesignBillingNote(),
       professionFactor: getDesignProfessionFactor(),
-      complexityTableName: getDesignComplexityTable().name,
       complexityName: complexity.name,
       complexityFactor: complexity.factor,
       additionalFactors: getDesignAdditionalFactors(),
@@ -2615,18 +2613,11 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                                 </div>
                                 {designCategoryKey !== CATEGORY_CUSTOM_VALUE && (
                                   <div className="flex justify-between text-[11px]">
-                                    <span className="text-[#76777d]">复杂程度表</span>
+                                    <span className="text-[#76777d]">工程复杂程度</span>
                                     <span className="text-[#45464d] text-right">
-                                      {getDesignComplexityRefs().length > 1
-                                        ? `${getDesignComplexityRefs().length} 张可选（步骤如下 ① 选择）`
-                                        : getDesignComplexityTable().name}
+                                      Ⅰ级 0.85 ｜ Ⅱ级 1.00 ｜ Ⅲ级 1.15
                                     </span>
                                   </div>
-                                )}
-                                {getDesignComplexityTable().note && (
-                                  <p className="text-[10px] text-[#a1a1aa] pt-1 leading-relaxed">
-                                    {getDesignComplexityTable().note}
-                                  </p>
                                 )}
                               </div>
 
@@ -2742,28 +2733,9 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                                     </button>
                                     {designSectionOpen.complexity && (
                                     <div className="px-4 py-3 border-t border-[#eceef0] space-y-2">
-                                    {getDesignComplexityRefs().length > 1 && (
-                                      <div className="space-y-1">
-                                        <span className="block text-[10px] text-[#76777d]">复杂程度表（选择工程内容）</span>
-                                        <select
-                                          value={String(designComplexityRefIndex)}
-                                          onChange={(e) => {
-                                            setDesignComplexityRefIndex(Number(e.target.value));
-                                            setDesignComplexityKey('c2');
-                                            setDesignManualPhase(false);
-                                            setDesignShowComplexityTable(false);
-                                            setShowDesignResult(false);
-                                          }}
-                                          className="w-full border border-[#c6c6cd] bg-white px-4 py-3 text-[12px] rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.1rem_1.1rem] bg-[right_0.9rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A]"
-                                        >
-                                          {getDesignComplexityRefs().map((ref, i) => (
-                                            <option key={ref.table} value={String(i)}>
-                                              {DESIGN_COMPLEXITY_TABLES[ref.table]?.name || ref.table}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                    )}
+                                    <p className="text-[10px] text-[#a1a1aa] leading-relaxed">
+                                      按《表 7.3-1 ~ 7.3-4 工程复杂程度表》判定：Ⅰ级（一般）0.85、Ⅱ级（较复杂）1.00、Ⅲ级（复杂）1.15。
+                                    </p>
                                     <select
                                       value={designComplexityKey}
                                       onChange={(e) => {
@@ -2772,41 +2744,16 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                                       }}
                                       className="w-full border border-[#c6c6cd] bg-white px-4 py-3 text-[12px] rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.1rem_1.1rem] bg-[right_0.9rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A]"
                                     >
-                                      {getDesignComplexityTable().levels.map((c) => (
+                                      {getDesignComplexityLevels().map((c) => (
                                         <option key={c.key} value={c.key}>{c.name}（调整系数 {c.factor}）</option>
                                       ))}
                                     </select>
-
-                                    {/* 当前等级的工程设计条件 */}
-                                    <div className="space-y-1">
-                                      {getDesignComplexity().conditions.map((cond, i) => (
-                                        <p key={i} className="text-[10px] text-[#76777d] leading-relaxed">· {cond}</p>
-                                      ))}
+                                    <div className="p-3 bg-[#f7f9fb] rounded-xl border border-[#eceef0] text-center">
+                                      <span className="text-[10px] text-[#76777d]">工程复杂程度调整系数：</span>
+                                      <span className="text-sm font-black text-[#007AFF] font-mono ml-1">
+                                        {getDesignComplexity().factor.toFixed(2)}
+                                      </span>
                                     </div>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => setDesignShowComplexityTable(!designShowComplexityTable)}
-                                      className="flex items-center gap-1.5 text-[10px] font-bold text-[#007AFF] hover:underline"
-                                    >
-                                      <ChevronDown className={`w-3 h-3 transition-transform ${designShowComplexityTable ? 'rotate-180' : ''}`} />
-                                      {designShowComplexityTable ? '收起完整复杂程度表' : `查看完整复杂程度表（${getDesignComplexityTable().name}）`}
-                                    </button>
-                                    {designShowComplexityTable && (
-                                      <div className="space-y-2 p-3 bg-[#f7f9fb] rounded-xl border border-[#eceef0]">
-                                        <div className="text-[10px] font-bold text-[#0F172A]">{getDesignComplexityTable().name}</div>
-                                        {getDesignComplexityTable().levels.map((lvl) => (
-                                          <div key={lvl.key} className="space-y-0.5">
-                                            <span className={`text-[10px] font-bold ${lvl.key === designComplexityKey ? 'text-[#007AFF]' : 'text-[#45464d]'}`}>
-                                              {lvl.name}（调整系数 {lvl.factor}）
-                                            </span>
-                                            {lvl.conditions.map((cond, i) => (
-                                              <p key={i} className="text-[9px] text-[#a1a1aa] leading-relaxed">{i + 1}．{cond}</p>
-                                            ))}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
                                     </div>
                                     )}
                                   </div>
@@ -3028,8 +2975,24 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
                                     {designSectionOpen.phases && (
                                     <div className="px-4 py-3 border-t border-[#eceef0] space-y-2">
                                       <p className="text-[10px] text-[#76777d] leading-relaxed">
-                                        按「工程类别 + 复杂程度表 + 复杂程度等级」自动查《表 7.2-1 建筑市政工程各阶段工作量比例表》填入。
+                                        按《表 7.2-1 建筑市政工程各阶段工作量比例表》选择对应的工程类型。
                                       </p>
+                                      {!designManualPhase && (
+                                        <select
+                                          value={getDesignPhaseRow().key}
+                                          onChange={(e) => {
+                                            setDesignPhaseRowKey(e.target.value);
+                                            setShowDesignResult(false);
+                                          }}
+                                          className="w-full border border-[#c6c6cd] bg-white px-4 py-3 text-[11px] rounded-2xl appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.1rem_1.1rem] bg-[right_0.9rem_center] bg-no-repeat focus:ring-2 focus:ring-[#007AFF]/10 focus:border-[#007AFF] outline-none text-[#0F172A] leading-relaxed"
+                                        >
+                                          {getDesignPhaseRowOptions().map((r) => (
+                                            <option key={r.key} value={r.key}>
+                                              {r.name}（方案 {r.p1}% / 初步 {r.p2}% / 施工图 {r.p3}%）
+                                            </option>
+                                          ))}
+                                        </select>
+                                      )}
                                       <div className="grid grid-cols-3 gap-2">
                                         {([
                                           { key: 'p1', label: '方案设计' },

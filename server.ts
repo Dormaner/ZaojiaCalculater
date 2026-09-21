@@ -1127,7 +1127,6 @@ app.post('/api/calculate-design', (req: Request, res: Response) => {
       categoryName,
       billingNote,
       professionFactor,
-      complexityTableName,
       complexityName,
       complexityFactor,
       additionalFactors,
@@ -1164,7 +1163,6 @@ app.post('/api/calculate-design', (req: Request, res: Response) => {
       categoryName: String(categoryName || '建筑、市政、电信工程'),
       billingNote: billingNote ? String(billingNote) : undefined,
       professionFactor: pFactor,
-      complexityTableName: complexityTableName ? String(complexityTableName) : undefined,
       complexityName: String(complexityName || '未指定'),
       complexityFactor: Number(complexityFactor) || 1,
       additionalFactors: Array.isArray(additionalFactors)

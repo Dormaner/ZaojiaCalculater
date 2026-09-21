@@ -30,17 +30,6 @@ export interface DesignComplexityLevel {
   desc?: string;
 }
 
-export interface DesignPhase {
-  key: string;
-  name: string;
-  /** 方案设计（%） */
-  p1: number;
-  /** 初步设计（%） */
-  p2: number;
-  /** 施工图设计（%） */
-  p3: number;
-}
-
 /** 修正（附加）调整系数选项；group 相同的项互斥 */
 export interface DesignFactorOption {
   key: string;
@@ -84,8 +73,6 @@ export interface DesignStandard {
   tierLabels: string[];
   /** 工程复杂程度等级 */
   complexity: DesignComplexityLevel[];
-  /** 各阶段工作量比例预设 */
-  phases: DesignPhase[];
   /** 修正（附加）调整系数选项 */
   additionalFactors: DesignFactorOption[];
   /** 其他设计收费选项 */
@@ -119,172 +106,26 @@ export const DESIGN_MODES = [
 ];
 
 // ==========================================
-// 第 7 章 建筑市政工程设计 —— 工程类别 / 复杂程度表 / 阶段工作量比例表
+// 第 7 章 建筑市政工程设计 —— 工程类别 / 阶段工作量比例表
 // 依据：计价格〔2002〕10 号《工程设计收费标准》
+//   · 附表二 第 6 类 建筑市政工程 专业调整系数（0.8 / 1.0 / 1.1）
 //   · 表 7.2-1 建筑市政工程各阶段工作量比例表
-//   · 表 7.3-1 建筑、人防工程复杂程度表
-//   · 表 7.3-2 园林绿化工程复杂程度表
-//   · 表 7.3-3 市政公用工程复杂程度表
-//   · 表 7.3-4 广播电视、邮政、电信工程复杂程度表
-//   · 附表二 第 6 类 建筑市政工程 专业调整系数
+//   · 工程复杂程度调整系数（表 7.3-1 ~ 7.3-4 统一）：Ⅰ级 0.85 / Ⅱ级 1.00 / Ⅲ级 1.15
 // ==========================================
-
-/** 工程复杂程度表（表 7.3-1 ~ 7.3-4），系数统一为 Ⅰ 0.85 / Ⅱ 1.00 / Ⅲ 1.15 */
-export interface DesignComplexityTable {
-  key: string;
-  /** 表名，如「建筑、人防工程复杂程度表（表 7.3-1）」 */
-  name: string;
-  /** 表下注释 */
-  note?: string;
-  levels: { key: string; name: string; factor: number; conditions: string[] }[];
-}
-
-const LV = (key: string, name: string, factor: number, conditions: string[]) => ({
-  key,
-  name,
-  factor,
-  conditions,
-});
-
-export const DESIGN_COMPLEXITY_TABLES: Record<string, DesignComplexityTable> = {
-  t731: {
-    key: 't731',
-    name: '建筑、人防工程复杂程度表（表 7.3-1）',
-    note: '注 1：大型建筑工程指 20001m² 以上，中型 5001～20000m²，小型 5000m² 以下',
-    levels: [
-      LV('c1', 'Ⅰ级（一般）', 0.85, [
-        '功能单一、技术要求简单的小型公共建筑工程',
-        '高度＜24m 的一般公共建筑工程',
-        '小型仓储建筑工程',
-        '简单的设备用房及其他配套用房工程',
-        '简单的建筑环境设计及室外工程',
-        '相当于一星级饭店及以下标准的室内装修工程',
-        '人防疏散干道、支干道及人防连接通道等人防配套工程',
-      ]),
-      LV('c2', 'Ⅱ级（较复杂）', 1.0, [
-        '大中型公共建筑工程',
-        '技术要求较复杂或有地区性意义的小型公共建筑工程',
-        '高度 24～50m 的一般公共建筑工程',
-        '20 层及以下一般标准的居住建筑工程',
-        '仿古建筑、一般标准的古建筑、保护性建筑以及地下建筑工程',
-        '大中型仓储建筑工程',
-        '一般标准的建筑环境设计和室外工程',
-        '相当于二、三星级饭店标准的室内装修工程',
-        '防护级别为四级及以下同时建筑面积＜10000m² 的人防工程',
-      ]),
-      LV('c3', 'Ⅲ级（复杂）', 1.15, [
-        '高级大型公共建筑工程',
-        '技术要求复杂或具有经济、文化、历史等意义的省（市）级中小型公共建筑工程',
-        '高度＞50m 的公共建筑工程',
-        '20 层以上居住建筑和 20 层及以下高标准居住建筑工程',
-        '高标准的古建筑、保护性建筑和地下建筑工程',
-        '高标准的建筑环境设计和室外工程',
-        '相当于四、五星级饭店标准的室内装修，特殊声学装修工程',
-        '防护级别为三级以上或者建筑面积≥10000m² 的人防工程',
-      ]),
-    ],
-  },
-  t732: {
-    key: 't732',
-    name: '园林绿化工程复杂程度表（表 7.3-2）',
-    levels: [
-      LV('c1', 'Ⅰ级（一般）', 0.85, ['一般标准的道路绿化工程', '片林、风景林等工程']),
-      LV('c2', 'Ⅱ级（较复杂）', 1.0, [
-        '标准较高的道路绿化工程',
-        '一般标准的风景区、公共建筑环境、企事业单位与居住区的绿化工程',
-      ]),
-      LV('c3', 'Ⅲ级（复杂）', 1.15, [
-        '高标准的城市重点道路绿化工程',
-        '高标准的风景区、公共建筑环境、企事业单位与居住区的绿化工程',
-        '公园、渡假村、高尔夫球场、广场、街心花园、园林小品、屋顶花园、室内花园等绿化工程',
-      ]),
-    ],
-  },
-  t733: {
-    key: 't733',
-    name: '市政公用工程复杂程度表（表 7.3-3）',
-    levels: [
-      LV('c1', 'Ⅰ级（一般）', 0.85, [
-        '庭院户内燃气管道工程',
-        '一般给排水地下管线（DN＜1.0m，无管线交叉）工程',
-        '小型垃圾中转站，简易堆肥工程',
-        '供热小区管网（二级网）工程',
-      ]),
-      LV('c2', 'Ⅱ级（较复杂）', 1.0, [
-        '城市调压站，瓶组站，＜5000 户气化站、混气站，＜500m³ 储配站工程',
-        '城区给排水管线，一般地下管线（DN＜1.0m，有管线交叉），＜1m³/s 加压泵站，简单构筑物工程',
-        '＞100t/天的大型垃圾中转站，垃圾填埋场、机械化快速堆肥工程',
-        '≤2MW 的小型换热站工程',
-      ]),
-      LV('c3', 'Ⅲ级（复杂）', 1.15, [
-        '城市超高压调压站，市内管线及加压站，穿、跨越管网，≥5000 户气化站、混气站，≥500m³ 储配站、门站、气源厂、加气站工程',
-        '大型复杂给排水管线，市政管网，大型泵站、水闸等构筑物，净水厂，污水处理厂工程',
-        '垃圾系统工程及综合处理与利用、焚烧工程',
-        '锅炉房，穿、跨越供热管网，＞2MW 换热站工程',
-        '海底排污管线，海水取排水、淡化及水处理工程',
-      ]),
-    ],
-  },
-  t734: {
-    key: 't734',
-    name: '广播电视、邮政、电信工程复杂程度表（表 7.3-4）',
-    levels: [
-      LV('c1', 'Ⅰ级（一般）', 0.85, [
-        '广播电视中心设备（广播 1 套，电视 1～2 套）工程',
-        '中波发射台设备（单机功率 P≤1kW）工程',
-        '短波发射台设备（单机功率 P≤50kW）工程',
-        '电视、调频发射塔（台）设备（单机功率 P≤1kW）工程',
-        '广播电视收测台设备工程',
-        '三级邮件处理中心工艺工程',
-        '简单的电信工程',
-      ]),
-      LV('c2', 'Ⅱ级（较复杂）', 1.0, [
-        '广播电视中心设备（广播 2～3 套，电视 3～5 套）工程',
-        '中波发射台设备（单机功率 1kW＜P≤20kW）工程',
-        '短波发射台设备（单机功率 50kW＜P≤150kW）工程',
-        '电视、调频发射塔（台）设备（单机功率 1kW＜P≤10kW，塔高＜200m）工程',
-        '广播电视传输网络工程',
-        '二级邮件处理中心及各类转运站工艺工程',
-        '较复杂的电信工程',
-      ]),
-      LV('c3', 'Ⅲ级（复杂）', 1.15, [
-        '广播电视中心设备（广播 4 套以上，电视 6 套以上）工程',
-        '中波发射台设备（单机功率 P＞20kW）工程',
-        '短波发射台设备（单机功率 P＞150kW）工程',
-        '电视、调频发射塔（台）设备（单机功率 P＞10kW，塔高≥200m）工程',
-        '电声设备、演播厅、录（播）音馆、摄影棚设备工程',
-        '广播电视卫星地球站、微波站设备工程',
-        '广播电视光缆、电缆节目传输工程',
-        '一级邮件处理中心工艺工程',
-        '复杂的电信工程',
-      ]),
-    ],
-  },
-};
-
-/** 各阶段工作量比例（表 7.2-1），按复杂程度等级键取值：[方案, 初步, 施工图] */
-export type PhaseByLevel = { c1: [number, number, number]; c2: [number, number, number]; c3: [number, number, number] };
-
-/** 复杂程度表引用：同一工程类别下不同工程内容对应不同的复杂程度表与阶段工作量比例 */
-export interface DesignComplexityRef {
-  /** 复杂程度表键（表 7.3-1 ~ 7.3-4） */
-  table: string;
-  /** 表 7.2-1 各阶段工作量比例 */
-  phaseByLevel: PhaseByLevel;
-}
 
 /**
  * 第 7 章工程类别。
  * 按《计价格〔2002〕10 号 附表二》第 6 类「建筑市政工程」的专业调整系数分为三档：
  *   邮政工艺工程 0.8 ｜ 建筑、市政、电信工程 1.0 ｜ 人防、园林绿化、广电工艺工程 1.1
+ * 每个类别均适用Ⅰ / Ⅱ / Ⅲ 三个工程复杂程度等级（0.85 / 1.00 / 1.15），无需另选复杂程度表。
  */
 export interface DesignCategory {
   key: string;
   name: string;
   /** 专业调整系数（附表二 第 6 类 建筑市政工程） */
   professionFactor: number;
-  /** 该类别可选的复杂程度表（含各表的阶段工作量比例） */
-  complexityRefs: DesignComplexityRef[];
+  /** 各类别默认选用的表 7.2-1 工程类型（按复杂程度等级键） */
+  defaultPhaseKeys: { c1: string; c2: string; c3: string; c4?: string };
   note?: string;
 }
 
@@ -293,39 +134,80 @@ export const DESIGN_CATEGORIES: DesignCategory[] = [
     key: 'cat-postal',
     name: '邮政工艺工程',
     professionFactor: 0.8,
-    complexityRefs: [
-      { table: 't734', phaseByLevel: { c1: [0, 40, 60], c2: [0, 40, 60], c3: [0, 40, 60] } },
-    ],
+    defaultPhaseKeys: {
+      c1: 'broadcast-postal',
+      c2: 'broadcast-postal',
+      c3: 'broadcast-postal',
+      c4: 'broadcast-postal',
+    },
   },
   {
     key: 'cat-building',
     name: '建筑、市政、电信工程',
     professionFactor: 1.0,
-    complexityRefs: [
-      { table: 't731', phaseByLevel: { c1: [10, 30, 60], c2: [15, 30, 55], c3: [20, 30, 50] } },
-      { table: 't733', phaseByLevel: { c1: [0, 40, 60], c2: [0, 40, 60], c3: [0, 50, 50] } },
-      { table: 't734', phaseByLevel: { c1: [0, 60, 40], c2: [0, 60, 40], c3: [0, 60, 40] } },
-    ],
+    defaultPhaseKeys: { c1: 'bld-c1', c2: 'bld-c2', c3: 'bld-c3', c4: 'bld-c3' },
   },
   {
     key: 'cat-civil-garden-broadcast',
     name: '人防、园林绿化、广电工艺工程',
     professionFactor: 1.1,
-    complexityRefs: [
-      { table: 't731', phaseByLevel: { c1: [10, 40, 50], c2: [10, 40, 50], c3: [10, 40, 50] } },
-      { table: 't732', phaseByLevel: { c1: [0, 30, 70], c2: [0, 30, 70], c3: [30, 20, 50] } },
-      { table: 't734', phaseByLevel: { c1: [0, 40, 60], c2: [0, 40, 60], c3: [0, 40, 60] } },
-    ],
+    defaultPhaseKeys: { c1: 'garden-12', c2: 'garden-12', c3: 'garden-3', c4: 'garden-3' },
   },
 ];
 
-/** 自定义工程类别（手动输入专业系数）时可选的复杂程度表 */
-export const DESIGN_CUSTOM_COMPLEXITY_REFS: DesignComplexityRef[] = [
-  { table: 't731', phaseByLevel: { c1: [10, 30, 60], c2: [15, 30, 55], c3: [20, 30, 50] } },
-  { table: 't732', phaseByLevel: { c1: [0, 30, 70], c2: [0, 30, 70], c3: [30, 20, 50] } },
-  { table: 't733', phaseByLevel: { c1: [0, 40, 60], c2: [0, 40, 60], c3: [0, 50, 50] } },
-  { table: 't734', phaseByLevel: { c1: [0, 40, 60], c2: [0, 40, 60], c3: [0, 40, 60] } },
+/** 自定义工程类别（手动输入专业系数）下拉的取值标记，与 App.tsx 的 CATEGORY_CUSTOM_VALUE 一致 */
+export const DESIGN_CUSTOM_CATEGORY_KEY = '__CUSTOM__';
+
+/** 表 7.2-1 建筑市政工程各阶段工作量比例表 —— 单行（比例均按 100% 合计） */
+export interface DesignPhaseRow {
+  key: string;
+  /** 工程类型名称（表中行名） */
+  name: string;
+  /** 方案设计（%） */
+  p1: number;
+  /** 初步设计（%） */
+  p2: number;
+  /** 施工图设计（%） */
+  p3: number;
+  /** 适用的工程类别键 */
+  categories: string[];
+  /** 适用的复杂程度等级键 */
+  levels: string[];
+}
+
+const ALL_LEVELS = ['c1', 'c2', 'c3', 'c4'];
+const BLD = ['cat-building', DESIGN_CUSTOM_CATEGORY_KEY];
+const CGB = ['cat-civil-garden-broadcast', DESIGN_CUSTOM_CATEGORY_KEY];
+
+export const DESIGN_PHASE_ROWS: DesignPhaseRow[] = [
+  { key: 'bld-c1', name: '建筑与室外工程 Ⅰ级', p1: 10, p2: 30, p3: 60, categories: BLD, levels: ['c1'] },
+  { key: 'bld-c2', name: '建筑与室外工程 Ⅱ级', p1: 15, p2: 30, p3: 55, categories: BLD, levels: ['c2'] },
+  { key: 'bld-c3', name: '建筑与室外工程 Ⅲ级', p1: 20, p2: 30, p3: 50, categories: BLD, levels: ['c3', 'c4'] },
+  { key: 'res-district', name: '住宅小区（组团）工程', p1: 25, p2: 30, p3: 45, categories: BLD, levels: ALL_LEVELS },
+  { key: 'residential', name: '住宅工程', p1: 25, p2: 0, p3: 75, categories: BLD, levels: ALL_LEVELS },
+  { key: 'historic', name: '古建筑、保护性建筑工程', p1: 30, p2: 20, p3: 50, categories: BLD, levels: ALL_LEVELS },
+  { key: 'weak-current', name: '智能建筑弱电系统工程', p1: 0, p2: 40, p3: 60, categories: BLD, levels: ALL_LEVELS },
+  { key: 'interior', name: '室内装修工程', p1: 50, p2: 0, p3: 50, categories: BLD, levels: ALL_LEVELS },
+  { key: 'municipal-12', name: '市政公用工程 Ⅰ、Ⅱ级', p1: 0, p2: 40, p3: 60, categories: BLD, levels: ['c1', 'c2'] },
+  { key: 'municipal-3', name: '市政公用工程 Ⅲ级', p1: 0, p2: 50, p3: 50, categories: BLD, levels: ['c3', 'c4'] },
+  { key: 'telecom', name: '电信工程', p1: 0, p2: 60, p3: 40, categories: BLD, levels: ALL_LEVELS },
+  { key: 'civil-defense', name: '人防工程', p1: 10, p2: 40, p3: 50, categories: CGB, levels: ALL_LEVELS },
+  { key: 'garden-12', name: '园林绿化工程 Ⅰ、Ⅱ级', p1: 30, p2: 0, p3: 70, categories: CGB, levels: ['c1', 'c2'] },
+  { key: 'garden-3', name: '园林绿化工程 Ⅲ级', p1: 30, p2: 20, p3: 50, categories: CGB, levels: ['c3', 'c4'] },
+  {
+    key: 'broadcast-postal',
+    name: '广播电视、邮政工程工艺部分',
+    p1: 0,
+    p2: 40,
+    p3: 60,
+    categories: ['cat-civil-garden-broadcast', 'cat-postal', DESIGN_CUSTOM_CATEGORY_KEY],
+    levels: ALL_LEVELS,
+  },
 ];
+
+/** 按「工程类别 + 复杂程度等级」筛选可用的表 7.2-1 工程类型行 */
+export const getDesignPhaseRows = (categoryKey: string, levelKey: string): DesignPhaseRow[] =>
+  DESIGN_PHASE_ROWS.filter((r) => r.categories.includes(categoryKey) && r.levels.includes(levelKey));
 
 // ==========================================
 // 公共基价表（计价格〔2002〕10号 附表一）
@@ -368,22 +250,6 @@ export const COMPLEXITY_4: DesignComplexityLevel[] = [
 ];
 
 // ==========================================
-// 各阶段工作量比例预设
-// ==========================================
-
-/** 全国 表 7.2-1 建筑市政工程各阶段工作量比例表（精简为 8 项常用预设） */
-export const PHASES_NAT: DesignPhase[] = [
-  { key: 'ph-nat-1', name: '建筑与室外工程 Ⅰ级', p1: 10, p2: 30, p3: 60 },
-  { key: 'ph-nat-2', name: '建筑与室外工程 Ⅱ级', p1: 15, p2: 30, p3: 55 },
-  { key: 'ph-nat-3', name: '建筑与室外工程 Ⅲ级', p1: 20, p2: 30, p3: 50 },
-  { key: 'ph-nat-4', name: '住宅小区（组团）工程', p1: 25, p2: 30, p3: 45 },
-  { key: 'ph-nat-5', name: '住宅工程', p1: 25, p2: 0, p3: 75 },
-  { key: 'ph-nat-6', name: '园林绿化工程', p1: 0, p2: 30, p3: 70 },
-  { key: 'ph-nat-7', name: '人防工程', p1: 10, p2: 40, p3: 50 },
-  { key: 'ph-nat-8', name: '市政公用工程', p1: 0, p2: 40, p3: 60 },
-];
-
-// ==========================================
 // 修正（附加）调整系数（第 7 章 建筑市政工程设计）
 // ==========================================
 
@@ -409,7 +275,6 @@ const FACTORS_CH7: DesignFactorOption[] = [
     name: '智能建筑弱电系统设计',
     factor: 1.3,
     note: '表 7.3-1 注 3：以弱电系统的设计概算为计费额，附加调整系数为 1.3',
-    billingNote: '表 7.3-1 注 3：以弱电系统的设计概算为计费额',
   },
   {
     key: 'interior',
@@ -454,7 +319,6 @@ export const DESIGN_STANDARDS: Record<string, DesignStandard> = {
     capRate: 1.6,
     tierLabels: buildTierLabels(AXIS_NAT),
     complexity: COMPLEXITY_3,
-    phases: PHASES_NAT,
     additionalFactors: FACTORS_CH7,
     otherFees: OTHER_FEES_COMMON,
     remark:
@@ -561,7 +425,6 @@ export const buildStandardFromMultiplier = (p: CustomDesignProvince): DesignStan
     capRate: p.capRate,
     tierLabels: buildTierLabels(axis),
     complexity,
-    phases: PHASES_NAT,
     additionalFactors: FACTORS_CH7,
     otherFees: OTHER_FEES_COMMON,
     remark: `计费额为经过批准的建设项目初步设计概算中的建筑安装工程费、设备与工器具购置费和联合试运转费之和；计费额为「计价格〔2002〕10号 附表一」标准 × ${p.multiplier}；计费额处于两个数值区间的，采用直线内插法确定工程设计收费基价；计费额大于 2000000 万元的，以计费额乘以 ${p.capRate}% 的收费率计算收费基价。本费用不含工程勘察费与非标准设备设计费。`,
@@ -690,8 +553,6 @@ export interface DesignCalcInput {
   billingNote?: string;
   /** 专业调整系数 */
   professionFactor: number;
-  /** 所采用的复杂程度表名称（表 7.3-1 ~ 7.3-4），省略时报告不展示该行 */
-  complexityTableName?: string;
   /** 工程复杂程度等级名称 */
   complexityName: string;
   /** 工程复杂程度调整系数 */
@@ -731,7 +592,6 @@ export const calculateDesign = (input: DesignCalcInput): DesignCalcResult => {
     categoryName,
     billingNote,
     professionFactor,
-    complexityTableName,
     complexityName,
     complexityFactor,
     additionalFactors,
@@ -770,13 +630,12 @@ export const calculateDesign = (input: DesignCalcInput): DesignCalcResult => {
   lines.push(`1. 工程类别：${categoryName}（专业调整系数 ${professionFactor.toFixed(2)}）`);
   lines.push(`2. 计费额 (${DESIGN_BILLING_BASE_LABEL})：${fmtWan(amount)} 万元`);
   if (billingNote) lines.push(`   （${billingNote}）`);
-  if (complexityTableName) lines.push(`3. 复杂程度表：${complexityTableName}`);
-  lines.push(`${complexityTableName ? 4 : 3}. 工程复杂程度：${complexityName}，调整系数 ${complexityFactor.toFixed(2)}`);
+  lines.push(`3. 工程复杂程度：${complexityName}，调整系数 ${complexityFactor.toFixed(2)}`);
   if (additionalFactors.length === 0) {
-    lines.push(`${complexityTableName ? 5 : 4}. 修正（附加）调整系数：1.00（无）`);
+    lines.push('4. 修正（附加）调整系数：1.00（无）');
   } else {
     lines.push(
-      `${complexityTableName ? 5 : 4}. 修正（附加）调整系数：${mergedText}（${additionalFactors.map((f) => `${f.name} ${f.factor.toFixed(2)}`).join('、')}）`
+      `4. 修正（附加）调整系数：${mergedText}（${additionalFactors.map((f) => `${f.name} ${f.factor.toFixed(2)}`).join('、')}）`
     );
     if (additionalFactors.length > 1) {
       lines.push(
@@ -784,12 +643,13 @@ export const calculateDesign = (input: DesignCalcInput): DesignCalcResult => {
       );
     }
   }
-  lines.push(`${complexityTableName ? 6 : 5}. 计费模式：${modeName}${modeFactor === 1 ? '' : `（× ${modeFactor.toFixed(2)}）`}`);
-  lines.push(`${complexityTableName ? 7 : 6}. 收费标准依据：${standard.source}`);
+  lines.push(`5. 计费模式：${modeName}${modeFactor === 1 ? '' : `（× ${modeFactor.toFixed(2)}）`}`);
+  lines.push(`6. 工程复杂程度取值说明：Ⅰ级 0.85 / Ⅱ级 1.00 / Ⅲ级 1.15（表 7.3-1 ~ 7.3-4）`);
+  lines.push(`7. 收费标准依据：${standard.source}`);
   lines.push('——————————————————');
   lines.push('计算过程说明：');
-  lines.push(`${complexityTableName ? 8 : 7}. 计费档位（计费额，万元）：${standard.tierLabels.join(' ｜ ')}（＞末档按 ${standard.capRate}% 计）`);
-  lines.push(`${complexityTableName ? 9 : 8}. 计算工程设计收费基价：`);
+  lines.push(`8. 计费档位（计费额，万元）：${standard.tierLabels.join(' ｜ ')}（＞末档按 ${standard.capRate}% 计）`);
+  lines.push('9. 计算工程设计收费基价：');
   if (loc.isBelowFirst) {
     lines.push(
       `   计费额 ${fmtWan(amount)} 万元未达到首档 ${fmtWan(standard.axis[0])} 万元，直接取首档基价 ${fmtWan(loc.base)} 万元`
@@ -808,10 +668,10 @@ export const calculateDesign = (input: DesignCalcInput): DesignCalcResult => {
     );
   }
   lines.push(
-    `${complexityTableName ? 10 : 9}. 基本设计收费 = ${fmtWan(loc.base)} × ${professionFactor.toFixed(2)}（专业） × ${complexityFactor.toFixed(2)}（复杂程度） × ${mergedText}（修正）${modeFactor === 1 ? '' : ` × ${modeFactor.toFixed(2)}（计费模式）`} = ${fmtWan(basicWan)} 万元`
+    `10. 基本设计收费 = ${fmtWan(loc.base)} × ${professionFactor.toFixed(2)}（专业） × ${complexityFactor.toFixed(2)}（复杂程度） × ${mergedText}（修正）${modeFactor === 1 ? '' : ` × ${modeFactor.toFixed(2)}（计费模式）`} = ${fmtWan(basicWan)} 万元`
   );
 
-  let stepIdx = complexityTableName ? 11 : 10;
+  let stepIdx = 11;
   if (otherFees.length > 0) {
     lines.push(`${stepIdx}. 其他设计收费：`);
     otherFees.forEach((f) => {
