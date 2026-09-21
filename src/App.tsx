@@ -5,11 +5,9 @@
 
 import { useState, useEffect } from 'react';
 import { 
-  Calculator, 
   History, 
   User, 
   ChevronRight, 
-  ChevronLeft,
   ArrowRight, 
   Search, 
   Trash2, 
@@ -17,22 +15,13 @@ import {
   RotateCcw, 
   CheckCircle2,
   Lock,
-  Settings2,
-  Percent,
-  BookOpen,
-  Info,
   ChevronDown,
   LayoutDashboard,
   BarChart3,
   HelpCircle,
-  FileCheck,
-  Eye,
-  Landmark,
   Home,
   MessageSquare,
-  Plus,
   PlusCircle,
-  MinusCircle,
   MapPin,
   Layers,
   Award,
@@ -43,12 +32,6 @@ import type * as React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { Variants } from 'motion/react';
 import { TabType, HistoryRecord, HistoryModule, DefaultProvinces } from './types';
-
-import {
-  interpolate,
-  calculateConsultingFee,
-  calculateProgressiveFee
-} from './services/calculationService';
 
 import {
   SUPERVISION_STANDARDS,
@@ -72,7 +55,6 @@ import {
   DESIGN_NAT_AXIS,
   DESIGN_NAT_PRICES,
   DESIGN_NAT_CAP_RATE,
-  COMPLEXITY_4,
   buildStandardFromMultiplier,
   calculateDesign,
   type CustomDesignProvince,
@@ -93,13 +75,6 @@ import {
   calculateFeasibility,
   type FeasibilityServiceItem,
 } from './data/feasibilityStandards';
-
-// Data Constants for Calculations
-const CONSULTING_FEE_CONFIG = [
-  { name: '清单编制费', rates: ['0.80%', '0.65%', '0.60%', '0.45%', '0.35%', '0.25%', '0.20%'], axis: ['0', '0.05', '0.3', '1', '5', '10', '50'], labels: ['费率 (%)', '投资额 (亿元)'] },
-  { name: '过程咨询费', rates: ['0.70%', '0.60%', '0.55%', '0.50%', '0.45%', '0.40%', '0.35%'], axis: ['0', '0.05', '0.3', '1', '5', '10', '50'], labels: ['费率 (%)', '工程费 (亿元)'] },
-  { name: '结算审核费', rates: ['0.60%', '0.46%', '0.36%', '0.28%', '0.22%', '0.15%', '0.10%'], axis: ['0', '0.05', '0.3', '1', '5', '10', '50'], labels: ['费率 (%)', '审核额 (亿元)'] },
-];
 
 // ==========================================
 // 历史记录（localStorage 持久化）
@@ -192,261 +167,6 @@ const saveDefaultProvinces = (cfg: DefaultProvinces) => {
     /* ignore */
   }
 };
-
-function FeeItem({ item, index, isEditable }: any) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [localRates, setLocalRates] = useState([...item.rates]);
-  const [localAxis, setLocalAxis] = useState([...item.axis]);
-
-  // Sync with standard values when not in custom mode
-  useEffect(() => {
-    if (!isEditable) {
-      setLocalRates([...item.rates]);
-      setLocalAxis([...item.axis]);
-    }
-  }, [item, isEditable]);
-
-  const addInterval = () => {
-    const lastRate = localRates[localRates.length - 1];
-    const lastAxis = localAxis[localAxis.length - 1];
-    setLocalRates([...localRates, lastRate]);
-    setLocalAxis([...localAxis, lastAxis]);
-  };
-
-  const removeInterval = () => {
-    if (localRates.length > 2) {
-      setLocalRates(localRates.slice(0, -1));
-      setLocalAxis(localAxis.slice(0, -1));
-    }
-  };
-
-  const handleUpdate = (idx: number, val: string, type: 'rate' | 'axis') => {
-    if (type === 'rate') {
-      const newRates = [...localRates];
-      newRates[idx] = val;
-      setLocalRates(newRates);
-    } else {
-      const newAxis = [...localAxis];
-      newAxis[idx] = val;
-      setLocalAxis(newAxis);
-    }
-  };
-
-  return (
-    <div className="overflow-hidden border-b border-[#eceef0]/50 last:border-b-0">
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-between py-3 px-1 hover:bg-[#0F172A]/5 transition-colors group cursor-pointer"
-      >
-        <div className="flex items-center gap-2 max-w-[85%]">
-          <span className="text-[13px] font-bold text-[#191c1e] shrink-0">
-            <span className="mr-1.5">{index + 1}.</span>
-            {item.name}
-          </span>
-          {!isOpen && (
-            <span className="text-[10px] text-[#76777d] bg-[#f2f4f6] px-1.5 py-0.5 rounded truncate">
-              {localRates[0]}...{localRates[localRates.length-1]}
-            </span>
-          )}
-        </div>
-        <ChevronRight className={`w-3.5 h-3.5 text-[#c6c6cd] transition-transform duration-300 ${isOpen ? 'rotate-90' : ''}`} />
-      </div>
-      <motion.div 
-        initial={false}
-        animate={{ height: isOpen ? 'auto' : 0 }}
-        className="overflow-hidden"
-      >
-        <div className="py-4 px-2 bg-[#f2f4f6]/30 rounded-lg mb-2 relative">
-          <div className="overflow-x-auto hide-scrollbar pb-2 touch-pan-x">
-            <div className="flex flex-col gap-4 min-w-max px-2">
-              {/* Top Rates - In Boxes */}
-              <div className="flex gap-2">
-                {localRates.map((rate, idx) => (
-                  <div key={idx} className="flex flex-col items-center w-9">
-                    <span 
-                      contentEditable={isEditable}
-                      suppressContentEditableWarning
-                      onBlur={(e) => handleUpdate(idx, e.currentTarget.textContent || '0', 'rate')}
-                      className={`text-[9px] font-mono rounded-md px-1 py-1 w-full text-center outline-none border transition-all shadow-sm ${
-                        isEditable 
-                        ? 'bg-white border-[#eceef0] focus:border-[#008ebf] cursor-text' 
-                        : 'bg-[#eceef0]/50 border-transparent text-[#76777d] cursor-default'
-                      }`}
-                    >
-                      {rate}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Axis Line & Ticks */}
-              <div className="relative h-2">
-                {/* Fixed horizontal line aligned to center of boxes */}
-                <div className="absolute top-1/2 left-[18px] right-[18px] h-px bg-[#c6c6cd] -translate-y-1/2"></div>
-                
-                {/* Ticks container matching top/bottom flex structure exactly */}
-                <div className="absolute inset-x-0 top-0 bottom-0 flex gap-2">
-                  {localRates.map((_, i) => (
-                    <div key={i} className="flex justify-center items-center w-9">
-                      <div className="w-0.5 h-2 bg-[#c6c6cd]"></div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Bottom Axis Labels */}
-              <div className="flex gap-2">
-                {localAxis.map((val, idx) => (
-                  <span 
-                    key={idx} 
-                    contentEditable={isEditable}
-                    suppressContentEditableWarning
-                    onBlur={(e) => handleUpdate(idx, e.currentTarget.textContent || '0', 'axis')}
-                    className={`text-[9px] w-9 text-center outline-none px-1 transition-colors ${
-                      isEditable ? 'text-[#008ebf] font-bold cursor-text underline underline-offset-4 decoration-dotted' : 'text-[#45464d] cursor-default'
-                    }`}
-                  >
-                    {val}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Add/Remove Controls - Custom Mode Only */}
-          {isEditable && (
-            <div className="flex justify-end gap-6 my-1 pr-2 mt-1">
-              <button 
-                onClick={(e) => { e.stopPropagation(); addInterval(); }}
-                className="flex items-center gap-1.5 text-[11px] font-bold text-[#191c1e] hover:opacity-70 transition-opacity"
-              >
-                <PlusCircle className="w-4 h-4" />
-                增加分段
-              </button>
-              <button 
-                onClick={(e) => { e.stopPropagation(); removeInterval(); }}
-                className="flex items-center gap-1.5 text-[11px] font-bold text-[#ba1a1a] hover:opacity-70 transition-opacity"
-              >
-                <MinusCircle className="w-4 h-4" />
-                删除分段
-              </button>
-            </div>
-          )}
-
-          {/* Edge Unit Labels */}
-          <div className="flex justify-between text-[9px] text-[#76777d] font-medium px-1 mt-1">
-            <span>{item.labels[0]}</span>
-            <span>{item.labels[1]}</span>
-          </div>
-          {isOpen && localRates.length > 5 && (
-            <div className="text-[8px] text-[#c6c6cd] text-center mt-2 animate-pulse">左右滑动查看更多分段 →</div>
-          )}
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-function FeeSection({ icon: Icon, title, defaultVal, items, isOpen, onToggle, customContent, onSelect }: any) {
-  const [selected, setSelected] = useState(defaultVal);
-  const [showDropdown, setShowDropdown] = useState(false);
-
-  useEffect(() => {
-    setSelected(defaultVal);
-  }, [defaultVal]);
-
-  return (
-    <div className="p-1 border-b border-[#eceef0] last:border-b-0 bg-white">
-      <div 
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (!target.closest('.dropdown-container')) {
-            onToggle();
-          }
-        }}
-        className="flex items-center justify-between w-full px-3 py-3 cursor-pointer hover:bg-[#f2f4f6]/20 transition-colors"
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-[#f2f4f6] flex items-center justify-center">
-            <Icon className="w-4 h-4 text-[#515f74]" />
-          </div>
-          <span className="text-sm font-bold text-[#191c1e]">{title}</span>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          {!isOpen ? (
-            <>
-              <span className="text-[11px] text-[#76777d] font-medium">{selected}</span>
-              <ChevronRight className="w-3.5 h-3.5 text-[#c6c6cd]" />
-            </>
-          ) : (
-            <div className="relative dropdown-container">
-              <div 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowDropdown(!showDropdown);
-                }}
-                className="flex items-center gap-1.5 border border-[#c6c6cd]/40 rounded px-2 py-1 bg-[#f2f4f6] cursor-pointer hover:border-[#008ebf] transition-all"
-              >
-                <span className="text-[10px] text-[#45464d] font-bold truncate max-w-[100px]">{selected}</span>
-                <ChevronDown className="w-3 h-3 text-[#76777d]" />
-              </div>
-              
-              <AnimatePresence>
-                {showDropdown && (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.95, y: 5 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                    className="absolute right-0 top-full mt-1 w-32 bg-white border border-[#c6c6cd] rounded-lg shadow-xl z-30 overflow-hidden"
-                  >
-                    {['湖南省标准', '自定义标准'].map((opt) => (
-                      <div 
-                        key={opt}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelected(opt); 
-                          setShowDropdown(false); 
-                          if (onSelect) onSelect(opt);
-                        }}
-                        className="px-3 py-2 text-[11px] hover:bg-[#dae2fd] cursor-pointer transition-colors border-b last:border-b-0 border-[#eceef0] font-medium"
-                      >
-                        {opt}
-                      </div>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
-      </div>
-      
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden bg-white"
-          >
-            <div className="px-3 pb-3">
-              {customContent ? (
-                typeof customContent === 'function' ? customContent(selected) : customContent
-              ) : (
-                <div className="space-y-0.5">
-                  {items.map((item: any, idx: number) => (
-                    <FeeItem key={idx} item={item} index={idx} isEditable={selected === '自定义标准'} />
-                  ))}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 // 造价咨询费测算数据配置
 const CONSULTING_PROJECT_CATEGORIES = [
@@ -900,10 +620,6 @@ interface CustomProvince {
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('calculator');
 
-  const [lastCalculation, setLastCalculation] = useState<number | null>(null);
-  const [industryFactor, setIndustryFactor] = useState(1.05);
-  const [expandedPref, setExpandedPref] = useState<string | null>(null);
-
   const [customProvinces, setCustomProvinces] = useState<CustomProvince[]>(() => {
     try {
       const saved = localStorage.getItem('cost_calculator_custom_provinces');
@@ -1042,14 +758,6 @@ export default function App() {
   const getSupervisionExtraFactor = () => {
     const std = getSupervisionStandard();
     return std.options.reduce((sum, o) => sum + (supervisionOptions[o.key] ? o.factor : 0), 0);
-  };
-
-  /** 从监理费报告文本中提取总费用（万元），未测算时返回 null */
-  const getSupervisionFeeWanyuan = (): number | null => {
-    if (!showSupervisionResult || !supervisionResultText) return null;
-    const feeText = extractFeeOnly(supervisionResultText);
-    const value = parseFloat(String(feeText).replace(/[^\d.]/g, ''));
-    return Number.isFinite(value) ? value / 10000 : null;
   };
 
   const getSupervisionExtraLabels = () => {
@@ -1202,14 +910,6 @@ export default function App() {
   const getFeasibilityTotalFactor = (): number =>
     getFeasibilityIndustryFactor() * getFeasibilityComplexityFactor() * getFeasibilityOtherFactor();
 
-  /** 从可研费报告文本中提取总费用（万元），未测算时返回 null */
-  const getFeasibilityFeeWanyuan = (): number | null => {
-    if (!showFeasibilityResult || !feasibilityResultText) return null;
-    const feeText = extractFeeOnly(feasibilityResultText);
-    const value = parseFloat(String(feeText).replace(/[^\d.]/g, ''));
-    return Number.isFinite(value) ? value / 10000 : null;
-  };
-
   const resetFeasibilityWizard = () => {
     setFeasibilityServiceKeys(['report']);
     setFeasibilityAmount('');
@@ -1290,34 +990,7 @@ export default function App() {
 
 
   // New States for Design Section
-  const [designStandard, setDesignStandard] = useState('湖南省标准');
-  const [showDesignDropdown, setShowDesignDropdown] = useState(false);
   const [showGlobalDropdown, setShowGlobalDropdown] = useState(false);
-  const [phases, setPhases] = useState({ p1: 25, p2: 45, p3: 30 });
-
-  // Sub-module standard labels states 
-  const [factorStd, setFactorStd] = useState('湖南省标准');
-  const [feasibilityStd, setFeasibilityStd] = useState('湖南省标准');
-  const [supervisionStd, setSupervisionStd] = useState('湖南省标准');
-  const [consultingStd, setConsultingStd] = useState('湖南省标准');
-
-  // Preset Management and Data Storage
-  const [presetsData, setPresetsData] = useState<Record<string, any>>({
-    '默认偏好': { 
-      factor: 1.05, 
-      factorStd: '湖南省标准',
-      designStd: '湖南省标准', 
-      phases: { p1: 25, p2: 45, p3: 30 },
-      feasibilityStd: '湖南省标准',
-      supervisionStd: '湖南省标准',
-      consultingStd: '湖南省标准'
-    }
-  });
-  const [globalPresets, setGlobalPresets] = useState(['默认偏好']);
-  const [selectedGlobalPreset, setSelectedGlobalPreset] = useState('默认偏好');
-  const [showSavePresetModal, setShowSavePresetModal] = useState(false);
-  const [newPresetName, setNewPresetName] = useState('');
-  const [showOverwriteWarning, setShowOverwriteWarning] = useState(false);
 
   // 「历史」页与「我的」页默认省份
   const [history, setHistory] = useState<HistoryRecord[]>(() => loadHistory());
@@ -1329,12 +1002,6 @@ export default function App() {
   const [showClearHistoryConfirm, setShowClearHistoryConfirm] = useState(false);
   const [defaultProvinces, setDefaultProvinces] = useState<DefaultProvinces>(() => loadDefaultProvinces());
   const [defaultProvinceSaved, setDefaultProvinceSaved] = useState(false);
-
-  // Calculation Inputs
-  const [engineeringBudget, setEngineeringBudget] = useState<string>('');
-  const [selectedRegion, setSelectedRegion] = useState('');
-  const [selectedIndustry, setSelectedIndustry] = useState('4、林业、商业、粮食、建筑');
-  const [calcResults, setCalcResults] = useState<any>(null);
 
   // Sub-tabs for the main calculator
   const [calculatorSubTab, setCalculatorSubTab] = useState<'design' | 'feasibility' | 'supervision' | 'consulting'>('design');
@@ -1706,87 +1373,9 @@ export default function App() {
     });
   };
 
-  const renderResultText = (text: string) => {
-    if (!text) return null;
-    const lines = text.split('\n');
-    const resultLineIdx = lines.findIndex(line => 
-      line.includes('项目总造价服务费用：') || 
-      line.includes('项目总咨询费用：') || 
-      line.includes('项目总跟踪审计费用：') ||
-      line.includes('项目总咨询服务费用：')
-    );
-
-    if (resultLineIdx === -1) {
-      return (
-        <pre className="text-xs font-mono bg-[#f7f9fb] p-4 rounded-2xl overflow-x-auto whitespace-pre-wrap leading-relaxed text-[#45464d] text-left">
-          {text}
-        </pre>
-      );
-    }
-
-    const resultLine = lines[resultLineIdx];
-    const beforeLines = lines.slice(0, resultLineIdx).join('\n');
-    const afterLines = lines.slice(resultLineIdx + 1).join('\n');
-
-    const matchLabel = resultLine.includes('项目总造价服务费用') ? '项目总造价服务费用' :
-                       resultLine.includes('项目总跟踪审计费用') ? '项目总跟踪审计费用' : '项目总咨询服务费用';
-    const matchVal = resultLine.split('：')[1] || resultLine;
-
-    return (
-      <div className="space-y-4 text-left">
-        <pre className="text-xs font-mono bg-[#f7f9fb] p-4 rounded-2xl overflow-x-auto whitespace-pre-wrap leading-relaxed text-[#76777d]">
-          {beforeLines}
-        </pre>
-        
-        {/* Highlighted Key Result Box */}
-        <div className="bg-[#007AFF]/5 border border-[#007AFF]/20 rounded-2xl p-5 text-center my-3">
-          <span className="block text-xs font-bold text-[#76777d] mb-1">{matchLabel}</span>
-          <div className="text-2xl font-black text-[#007AFF] font-mono">
-            {matchVal}
-          </div>
-        </div>
-
-        {afterLines && (
-          <pre className="text-xs font-mono bg-[#f7f9fb] p-4 rounded-2xl overflow-x-auto whitespace-pre-wrap leading-relaxed text-[#76777d]">
-            {afterLines}
-          </pre>
-        )}
-      </div>
-    );
-  };
-
-  // Project Categories Data
-  const PROJECT_CATEGORIES = [
-    { name: '建筑与室外工程 I 级', desc: '包括 50 层以上或建筑高度超过 150 米的超高层建筑，或跨度 36 米以上的大跨度建筑，以及功能极为复杂的大型公共建筑。' },
-    { name: '建筑与室外工程 II 级', desc: '包括 12-50 层或建筑高度 50-150 米的高层建筑，或中型公共建筑，或跨度 24-36 米的建筑。' },
-    { name: '建筑与室外工程 III 级', desc: '包括 12 层以下或建筑高度 50 米以下的普通低、多层建筑，或小型公共建筑。' },
-    { name: '住宅小区（组团）工程', desc: '指城镇中按居住区规划布置，由多栋居住建筑及配套设施（如路网、绿地、配套公建）组成的群体工程。' },
-    { name: '住宅工程', desc: '指单栋或多栋独立的居住类建筑，不含较大规模配套设施的情况。' },
-    { name: '古建筑保护性建筑工程', desc: '对具有历史价值的古代建筑及其遗址进行的修缮、加固、复建或保护性设施建设工程。' },
-    { name: '智能建筑弱电系统工程', desc: '包括楼宇自控、综合布线、安防监控、通信网络、紧急广播等各类弱电系统的集成与安装工程。' },
-    { name: '室内装修工程', desc: '指对建筑物内部空间进行的二次装修、美化及相关配套设施的施工。' },
-    { name: '园林绿化 I、II 级', desc: '复杂的城市公园、风景名胜区、主题公园或大规模景观轴线，包含较多雕塑、喷泉等建筑小品。' },
-    { name: '园林绿化 III 级', desc: '常规的街道绿化、居住区绿地、单位内绿化或小型街头绿地。' },
-    { name: '人防工程', desc: '为保障战时人员与物资掩蔽、人防指挥、医疗救护而建的地下防护建筑，包括平战结合的人防工程。' },
-    { name: '市政公用工程 I、II 级', desc: '城市主干道、大型快速路、立交桥、长跨度桥梁或大规模供水排水厂站系统。' },
-    { name: '市政公用工程 III 级', desc: '城市支路、普通排水管网、小型泵站或其他常规市政配套设施。' },
-    { name: '广播电视、邮政工程工艺部分', desc: '专门针对广电发射中心、演播厅或邮政分拣、处理系统的工艺设备安装与系统调试。' },
-    { name: '电信工程', desc: '现代通信系统工程，包括通信枢纽枢纽、基站、交换系统以及光缆骨干网络工程。' }
-  ];
-
-  const [selectedCategory, setSelectedCategory] = useState(PROJECT_CATEGORIES[0].name);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [explainingItem, setExplainingItem] = useState<{name: string, desc: string} | null>(null);
 
-  // Consulting Types Data
-  const CONSULTING_TYPES = [
-    { name: '决策阶段至竣工阶段', desc: '全过程工程咨询服务，涵盖从前期策划、项目建议书、可行性研究、投资估算，到设计、招投标、施工管理、竣工验收及决算审计的完整生命周期。' },
-    { name: '设计阶段至竣工阶段', desc: '从初步设计阶段切入，重点负责施工图预算编制、设计优化咨询、施工招标代理，以及从开工到竣工的全程造价控制与管理。' },
-    { name: '交易阶段至竣工阶段', desc: '专注于工程招标咨询、工程量清单及招标控制价编制、投标文件商务标审核，以及合同签订至项目竣工后的费用申报与结算管理。' },
-    { name: '施工阶段至竣工阶段', desc: '主要负责施工期间的进度款审核、设计变更与现场签证管理、结算把关，直至协助完成竣工财务决算审计工作。' }
-  ];
-
-  const [selectedConsultingType, setSelectedConsultingType] = useState(CONSULTING_TYPES[0].name);
   const [showConsultingDropdown, setShowConsultingDropdown] = useState(false);
 
   // Handle click outside for dropdowns
@@ -1806,50 +1395,6 @@ export default function App() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showCategoryDropdown, showConsultingDropdown, showGlobalDropdown]);
-
-  // Helper to apply a preset's full configuration
-  const applyPreset = (presetName: string) => {
-    const config = presetsData[presetName];
-    if (config) {
-      setIndustryFactor(config.factor);
-      setFactorStd(config.factorStd || '湖南省标准');
-      setDesignStandard(config.designStd || '湖南省标准');
-      setPhases(config.phases);
-      setFeasibilityStd(config.feasibilityStd || '湖南省标准');
-      setSupervisionStd(config.supervisionStd || '湖南省标准');
-      setConsultingStd(config.consultingStd || '湖南省标准');
-      setSelectedGlobalPreset(presetName);
-    }
-  };
-
-  // Helper to delete a preset
-  const deletePreset = (presetName: string) => {
-    if (presetName === '默认偏好') return;
-    
-    setGlobalPresets(prev => prev.filter(p => p !== presetName));
-    setPresetsData(prev => {
-      const newData = { ...prev };
-      delete newData[presetName];
-      return newData;
-    });
-
-    if (selectedGlobalPreset === presetName) {
-      applyPreset('默认偏好');
-    }
-  };
-
-  const isCustom = !presetsData[selectedGlobalPreset] || 
-                   industryFactor !== presetsData[selectedGlobalPreset].factor || 
-                   designStandard !== presetsData[selectedGlobalPreset].designStd || 
-                   factorStd !== presetsData[selectedGlobalPreset].factorStd ||
-                   feasibilityStd !== presetsData[selectedGlobalPreset].feasibilityStd ||
-                   supervisionStd !== presetsData[selectedGlobalPreset].supervisionStd ||
-                   consultingStd !== presetsData[selectedGlobalPreset].consultingStd ||
-                   phases.p1 !== presetsData[selectedGlobalPreset].phases.p1 ||
-                   phases.p2 !== presetsData[selectedGlobalPreset].phases.p2 ||
-                   phases.p3 !== presetsData[selectedGlobalPreset].phases.p3;
-
-  const displayStandard = isCustom ? '自定义偏好' : selectedGlobalPreset;
 
   const calculateHunan = (validProjects: any[], category: any, categoryFactor: number) => {
     let totalYuan = 0;
@@ -2593,31 +2138,9 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
     mergeFactorPreview(getDesignAdditionalFactors().map((f) => f.factor)) *
     getDesignModeFactor();
 
-  /** 各阶段金额（万元），用于报告页汇总卡片 */
-  const getDesignPhaseAmounts = () => {
-    const total = getDesignFeeWanyuan();
-    if (total === null) return [];
-    const phase = getDesignPhase();
-    return [
-      { name: '方案设计', percent: phase.p1 },
-      { name: '初步设计', percent: phase.p2 },
-      { name: '施工图设计', percent: phase.p3 },
-    ]
-      .filter((p) => p.percent > 0)
-      .map((p) => ({ ...p, wan: (total * p.percent) / 100 }));
-  };
-
   /** 折叠步骤 4 的某个分区 */
   const toggleDesignSection = (key: string) =>
     setDesignSectionOpen((prev) => ({ ...prev, [key]: !prev[key] }));
-
-  /** 从设计费报告文本中提取总费用（万元），未测算时返回 null */
-  const getDesignFeeWanyuan = (): number | null => {
-    if (!showDesignResult || !designResultText) return null;
-    const feeText = extractFeeOnly(designResultText);
-    const value = parseFloat(String(feeText).replace(/[^\d.]/g, ''));
-    return Number.isFinite(value) ? value / 10000 : null;
-  };
 
   const resetDesignWizard = () => {
     applyDesignCategory('cat-building');
@@ -2710,13 +2233,6 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
       ...payload,
     });
     commitDesignResult(result.reportText);
-  };
-
-  /** 跳转报告页汇总（同步项目概算总计） */
-  const goToReportPage = () => {
-    const amt = parseFloat(designAmount);
-    setCalcResults({ budget: Number.isFinite(amt) && amt > 0 ? amt : 0 });
-    setActiveTab('report');
   };
 
   const containerVariants: Variants = {
@@ -4847,214 +4363,6 @@ ${isAdjusted ? `${adjustmentMsg}\n` : ''}—————————————
 
                 {/* Padding for fixed button */}
                 <div className="h-20 md:hidden"></div>
-              </div>
-            </motion.div>
-          )}
-
-          {activeTab === 'report' && (
-            <motion.div
-              key="report"
-              variants={containerVariants}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-              className="space-y-3 pt-2"
-            >
-              <div className="bg-white border border-[#c6c6cd]/60 rounded-lg p-3 shadow-sm border-t-4 border-t-[#008ebf]">
-                <h2 className="text-xl font-bold mb-1">工程造价结算汇总</h2>
-                <p className="text-[#45464d] text-[11px]">基于最新行业取费标准及用户输入参数自动计算</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-               <div className="md:col-span-4 bg-white border border-[#c6c6cd]/60 rounded-lg p-3 shadow-sm border-t-2 border-t-[#0F172A]">
-                  <p className="text-[10px] uppercase tracking-wider text-[#45464d] mb-2 font-bold">项目概算总计 (预估总额)</p>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-black text-[#008ebf]">
-                      {(calcResults?.budget || parseFloat(designAmount) || 883.27).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                    <span className="text-xs font-semibold text-[#45464d]">万元</span>
-                  </div>
-                </div>
-
-                {(showDesignResult || !calcResults?.activeSubTab) && (
-                  <div className="md:col-span-8 bg-white border border-[#c6c6cd]/60 rounded-lg overflow-hidden shadow-sm">
-                    <div className="bg-[#f2f4f6] px-4 py-2 border-b border-[#c6c6cd]/60 flex justify-between items-center">
-                      <h3 className="text-xs font-bold flex items-center gap-2">
-                         <LayoutDashboard className="w-4 h-4 text-[#008ebf]" />
-                         工程设计费 (总价)
-                      </h3>
-                      <span className="text-sm font-mono font-bold text-[#008ebf]">
-                        {getDesignFeeWanyuan() !== null
-                          ? `${getDesignFeeWanyuan()!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} 万元`
-                          : '--'}
-                      </span>
-                    </div>
-                    <div className="p-3">
-                      {getDesignFeeWanyuan() !== null ? (
-                        <div className="grid grid-cols-3 gap-2 text-center">
-                          {getDesignPhaseAmounts().map((p) => (
-                            <div key={p.name} className="flex flex-col border-r border-[#eceef0] last:border-0 pr-1">
-                              <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">{p.name}({p.percent}%)</span>
-                              <span className="text-sm font-bold text-nowrap">
-                                {p.wan.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} <span className="text-[9px] font-normal text-[#76777d]">万</span>
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => { setActiveTab('calculator'); setCalculatorSubTab('design'); }}
-                          className="w-full text-[11px] font-bold text-[#007AFF] py-3 hover:opacity-70 transition-opacity"
-                        >
-                          尚未测算，点击前往「工程设计费」向导 →
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Additional Fee Sections */}
-                {(showFeasibilityResult || !calcResults?.activeSubTab) && (
-                  <div key="ke-yan" className="md:col-span-12 bg-white border border-[#c6c6cd]/60 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
-                    <div className="bg-[#f2f4f6] px-4 py-2 border-b border-[#c6c6cd]/60 flex justify-between items-center">
-                      <h3 className="text-xs font-bold flex items-center gap-2">
-                         <BarChart3 className="w-4 h-4 text-[#008ebf]" />
-                         工程可研费用
-                      </h3>
-                      <span className="text-sm font-mono font-bold text-[#008ebf]">
-                        {getFeasibilityFeeWanyuan() !== null
-                          ? `${getFeasibilityFeeWanyuan()!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} 万元`
-                          : '--'}
-                      </span>
-                    </div>
-                    <div className="p-3">
-                      {getFeasibilityFeeWanyuan() !== null ? (
-                        <div className="grid grid-cols-3 gap-2 text-center">
-                          <div className="flex flex-col border-r border-[#eceef0] pr-1">
-                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">测算省份</span>
-                            <span className="text-sm font-bold text-nowrap truncate">{getFeasibilityStandard().name}</span>
-                          </div>
-                          <div className="flex flex-col border-r border-[#eceef0] pr-1">
-                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">{FEASIBILITY_BILLING_BASE_LABEL}（万元）</span>
-                            <span className="text-sm font-bold text-nowrap truncate font-mono">{parseFloat(feasibilityAmount) || 0}</span>
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">咨询服务类型</span>
-                            <span className="text-[10px] font-bold leading-tight">
-                              {getSelectedFeasibilityServices().map((s) => s.name).join('、')}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => { setActiveTab('calculator'); setCalculatorSubTab('feasibility'); }}
-                          className="w-full text-[11px] font-bold text-[#007AFF] py-3 hover:opacity-70 transition-opacity"
-                        >
-                          尚未测算，点击前往「工程可研费」向导 →
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {(calcResults?.activeSubTab === 'supervision' || !calcResults?.activeSubTab) && (
-                  <div key="jian-li" className="md:col-span-12 bg-white border border-[#c6c6cd]/60 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
-                    <div className="bg-[#f2f4f6] px-4 py-2 border-b border-[#c6c6cd]/60 flex justify-between items-center">
-                      <h3 className="text-xs font-bold flex items-center gap-2">
-                         <User className="w-4 h-4 text-[#008ebf]" />
-                         工程监理费
-                      </h3>
-                      <span className="text-sm font-mono font-bold text-[#008ebf]">
-                        {getSupervisionFeeWanyuan() !== null
-                          ? `${getSupervisionFeeWanyuan()!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })} 万元`
-                          : '-- 万元'}
-                      </span>
-                    </div>
-                    <div className="p-3">
-                      {showSupervisionResult ? (
-                        <div className="grid grid-cols-3 gap-2 text-center">
-                          <div className="flex flex-col border-r border-[#eceef0] pr-1">
-                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">测算省份</span>
-                            <span className="text-sm font-bold text-nowrap truncate">{getSupervisionStandard().name}</span>
-                          </div>
-                          <div className="flex flex-col border-r border-[#eceef0] pr-1">
-                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">监理服务类型</span>
-                            <span className="text-sm font-bold text-nowrap truncate">{supervisionServiceType || '--'}</span>
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-[9px] text-[#45464d] mb-1 font-medium truncate">工程难度调整系数</span>
-                            <span className="text-sm font-bold text-nowrap">
-                              {getSelectedSupervisionCategory()?.factor.toFixed(2) ?? '--'}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => { setActiveTab('calculator'); setCalculatorSubTab('supervision'); }}
-                          className="w-full text-[11px] font-bold text-[#008ebf] py-1"
-                        >
-                          尚未测算，点击前往「工程监理费」向导 →
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {(showConsultingResult || !calcResults?.activeSubTab) && (
-                  <div key="zhao-jia" className="md:col-span-12 bg-white border border-[#c6c6cd]/60 rounded-lg overflow-hidden shadow-sm animate-fadeIn">
-                    <div className="bg-[#f2f4f6] px-4 py-2 border-b border-[#c6c6cd]/60 flex justify-between items-center">
-                      <h3 className="text-xs font-bold flex items-center gap-2">
-                         <Settings2 className="w-4 h-4 text-[#008ebf]" />
-                         造价咨询费
-                      </h3>
-                      <span className="text-sm font-mono font-bold text-[#008ebf]">
-                        {showConsultingResult && consultingResultText ? (extractFeeOnly(consultingResultText) || '--') : '--'}
-                      </span>
-                    </div>
-                    <div className="p-3">
-                      {showConsultingResult && consultingResultText ? (
-                        <pre className="text-[10px] font-mono bg-[#f7f9fb] p-3 rounded-xl overflow-x-auto whitespace-pre-wrap leading-relaxed text-[#45464d] border border-[#eceef0] text-left max-h-64">
-                          {consultingResultText}
-                        </pre>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => { setActiveTab('calculator'); setCalculatorSubTab('consulting'); }}
-                          className="w-full text-[11px] font-bold text-[#007AFF] py-3 hover:opacity-70 transition-opacity"
-                        >
-                          尚未测算，点击前往「造价咨询费」向导 →
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="md:col-span-12 bg-[#d5e3fd] rounded-lg p-4 text-[#57657b]">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Info className="w-4 h-4" />
-                    <h4 className="text-xs font-bold">备注说明</h4>
-                  </div>
-                  <p className="text-[11px] leading-relaxed">
-                    1. 以上费用均为预估金额，最终结算以实际审计结果为准。<br/>
-                    2. 设计费已包含方案优化及三次重大修改的技术服务费。
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-2 mb-20 lg:mb-0">
-                <button 
-                  onClick={() => setActiveTab('calculator')}
-                  className="flex-1 bg-white border border-[#0F172A] text-[#0F172A] py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-[#eceef0] transition-all shadow-sm text-sm"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  重新计算
-                </button>
-                <button className="flex-1 bg-[#0F172A] text-white py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-lg text-sm">
-                  <FileCheck className="w-4 h-4" />
-                  导出 PDF
-                </button>
               </div>
             </motion.div>
           )}
